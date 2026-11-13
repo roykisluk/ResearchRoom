@@ -467,7 +467,7 @@ def minicb(defs):
 
 
 # Under each figure, three sentences: Purpose, How, What it shows (10-20). Claude writes them into .room/about.tsv
-# after each readback (taxcoding § 5; `--about-todo` lists the plots without a current row); the owner approves each in the
+# after each readback (`--about-todo` lists the plots without a current row); the owner approves each in the
 # room. A row holds the fingerprint of the figure and caption it was written about, so a redraw puts it back to
 # "outdated"; every number in What it shows must be given by the caption or the row's sources (unmatched()).
 ABOUT = os.path.join(DATA, "about.tsv")
@@ -618,13 +618,14 @@ def archive(ids, on, day=None, path=ARCHIVED):
         return False
     lines = open(path, encoding="utf-8").readlines() if os.path.isfile(path) else []
     out = [l for l in lines if l.startswith("#") or l.rstrip("\n").split("\t")[0] not in ids]
+    os.makedirs(os.path.dirname(path), exist_ok=True)  # a project with no .room/ yet
     with open(path, "w", encoding="utf-8") as fh:
         fh.writelines(out + ([f"{i}\t{day or time.strftime('%Y-%m-%d')}\n" for i in ids] if on else []))
     return True
 
 
 # The owner's importance mark in the room (10-21): how key a figure is to its task (.room/tasks.tsv), not overall; Claude
-# sets it at each read-back (taxcoding § 5) and --labels-todo lists the figures still without one.
+# sets it at each read-back and --labels-todo lists the figures still without one.
 # .room/importance.tsv, "<plot id>\t<!, !! or !!!>\t<date>", one line per member of a family, as archived.tsv; the
 # card's button cycles it and the card and the tree show it, collaborators too.
 IMPORTANCE = os.path.join(DATA, "importance.tsv")
@@ -659,7 +660,7 @@ def mark(ids, level, day=None, path=IMPORTANCE):
 # "What is this?" (10-20): one sentence above each figure that says at a glance what it shows, for a first-time
 # reader. .room/whatis.tsv, "<plot id>\t<date approved>\t<sentence>"; from the 11-06 read (11-08) the
 # sentence is the question the plot asks and a fourth column holds its answer, the bottom line. A family reads it
-# through its members (the main one first), so a row keyed by a member survives the family's id. Written with the about rows (taxcoding § 5).
+# through its members (the main one first), so a row keyed by a member survives the family's id. Written with the about rows.
 WHATIS = os.path.join(DATA, "whatis.tsv")
 
 
@@ -1178,10 +1179,10 @@ def added():
     return out
 
 
-# Every readback files docs/runs/readout_<date>_<label>.md (taxcoding skill); its label is the sitting ("23rd") or, in
+# Every readback files docs/runs/readout_<date>_<label>.md; its label is the sitting ("23rd") or, in
 # older ones, the scripts read ("61_64"). The room groups plots by the read their outputs come from (10-20).
 READOUT = re.compile(r"^readout_(\d{4}-\d\d-\d\d)_(.+)\.md$")
-SITTING = re.compile(r"^\d+(st|nd|rd|th|[a-z])(-\d+(st|nd|rd|th|[a-z]))?$")  # 38b: a re-ship's letter (ship.sh)
+SITTING = re.compile(r"^\d+(st|nd|rd|th|[a-z])(-\d+(st|nd|rd|th|[a-z]))?$")  # 38b: a re-ship's letter
 
 
 def reads(log, readouts):
@@ -1704,7 +1705,7 @@ def export(out):
     last = max((p["read"] for p in full["plots"].values()), default="")
     noeq = sorted(f["path"] for p in full["plots"].values() if p["read"] == last and p.get("ptype") in ("forest", "event study")
                   for f in p["files"].values() if f["path"].endswith(".pdf") and "superseded" not in f["flags"] and eq_of(f["path"]) == f["path"])
-    if noeq:  # figure_rules.save(equation=), or for a page drawn in the enclave a row in code/local/85_enclave_equations_v1.py
+    if noeq:  # figure_rules.save(equation=), or for a page drawn in the enclave the project's own script
         print(f"{len(noeq)} regression figures read {last} show no equation:\n  " + "\n  ".join(noeq), file=sys.stderr)
     if lost := scan()[1]:  # never silent: these are listed at /all only (review 11-13, F8)
         names_ = ", ".join(sorted(f"{f['dir']}/{f['name']}" for f in lost)[:8]) + (", …" if len(lost) > 8 else "")
@@ -1846,6 +1847,10 @@ def publish():
     if not (h.get("project") and h.get("hosts")):
         print("no [hosted] section with project and hosts in .room/config.toml: nothing to publish to", file=sys.stderr)
         return 1
+    for prog, what in (("curl", "curl"), ("npx", "node (npx)")):
+        if not shutil.which(prog):
+            print(f"--publish needs {what}", file=sys.stderr)
+            return 1
     if bad := access_guard(h["hosts"], h.get("access_team", "")):
         print(*bad, sep="\n", file=sys.stderr)
         return 1
@@ -2470,11 +2475,40 @@ def selftest():
         assert r.returncode != 0 and "[hosted] emails and access_team" in r.stderr, r.stderr  # no allow-list: the web room refuses to start
         r = run("--project", d, "--publish")  # no [hosted]: refuses, and writes no publish folder
         assert r.returncode == 1 and "no [hosted] section" in r.stderr and not os.path.exists(os.path.join(d, ".room", "site")), r.stderr
+        # a value of the wrong type stops the engine and its key is named; a TOML date is a date (review 11-13, F10)
+        for text, key in (('floor = "14/09/2026"\n', "floor"), ('people = "Ann"\n', "people"), ('hosted = "x"\n', "hosted"),
+                          ('[hosted]\nhosts = "a.example.org"\n', "hosted.hosts")):
+            conf(text)
+            r = run("--project", d, "--export", out)
+            assert r.returncode == 1 and f"'{key}' in .room/config.toml must be" in r.stderr and "Traceback" not in r.stderr, (key, r.stderr)
+        conf("floor = 2026-01-02\n")
+        assert run("--project", d, "--export", out).returncode == 0
+        # an abbreviated option is refused: project.py would not read it, and the current folder would be exported (F2)
+        r = run("--proj", d, "--export", out)
+        assert r.returncode == 2 and "--proj" in r.stderr, r.stderr
+        r = run("--project", os.path.join(d, "figures", "10_a_v1.png"), "--export", out)  # a file, not a folder (F15)
+        assert r.returncode == 1 and "is not a folder" in r.stderr and "Traceback" not in r.stderr, r.stderr
+        # Archive and Importance write their file in a project that has no .room/ yet (F16)
+        ids = ["figures/10_a_v1.png"]
+        assert archive(ids, True, path=os.path.join(d, "new1", "archived.tsv")) and mark(ids, "!", path=os.path.join(d, "new2", "importance.tsv"))
+        # --publish without curl or node names the missing program before anything is written (F11); with both, a host
+        # Access does not guard is refused before the publish folder is wiped (F17; port 1 refuses the connection)
+        conf('[hosted]\nproject = "p"\nhosts = ["127.0.0.1:1"]\n')
+        os.makedirs(os.path.join(d, ".room", "site")); open(keep := os.path.join(d, ".room", "site", "keep"), "w").close()
+        r = run("--project", d, "--publish", env=dict(os.environ, PATH=bin_))
+        assert r.returncode == 1 and "needs curl" in r.stderr and "Traceback" not in r.stderr and os.path.isfile(keep), r.stderr
+        if shutil.which("curl"):
+            os.symlink(shutil.which("curl"), os.path.join(bin_, "curl"))
+            r = run("--project", d, "--publish", env=dict(os.environ, PATH=bin_))
+            assert r.returncode == 1 and "needs node (npx)" in r.stderr and "Traceback" not in r.stderr and os.path.isfile(keep), r.stderr
+            if shutil.which("npx"):
+                r = run("--project", d, "--publish")
+                assert r.returncode == 1 and "refusing to deploy" in r.stderr and os.path.isfile(keep), r.stderr
     print("selftest ok")
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)  # as project.py reads --project
     ap.add_argument("--project", metavar="DIR", default=".", help="the project folder, holding figures/ or tables/ (default: the current folder)")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--selftest", action="store_true")

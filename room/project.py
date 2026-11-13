@@ -4,7 +4,7 @@ ROOT is the folder given with --project, else the folder the engine is run from:
 DATA is the project's dashboard data, ROOT/.room. CFG is DATA/config.toml, {} when the project has none
 (design docs/plans/2026-11-13-shared-dashboard-design.md §2, §3).
 """
-import argparse, os, sys
+import argparse, os, sys, time
 
 if sys.version_info < (3, 11):
     sys.exit(f"needs Python 3.11 or newer (this is {sys.version_info.major}.{sys.version_info.minor})")
@@ -13,16 +13,19 @@ import tomllib  # noqa: E402  3.11 and later
 _ap = argparse.ArgumentParser(add_help=False, allow_abbrev=False)  # the engine's own parser lists --project for --help
 _ap.add_argument("--project", default=".")
 ROOT = os.path.abspath(os.path.expanduser(_ap.parse_known_args()[0].project))
+if not os.path.isdir(ROOT):
+    sys.exit(f"{ROOT} is not a folder")
 DATA = os.path.join(ROOT, ".room")
 # Every key the config may hold; a table's value is its own keys. A key is added here only with a reason, written in
 # the commit: the file must not grow into a second program (design, anti-goals).
 ALLOWED = {"name": None, "title": None, "floor": None, "marks_from": None, "people": None,
            "hosted": {"project", "hosts", "access_team", "emails", "env_file"}, "claude": {"prompt_file"}, "siblings": {"codebooks"}}
+DATES, LISTS = {"floor", "marks_from"}, {"people", "hosted.hosts", "hosted.emails"}  # the values with a type to check
 
 
 def config(path):
-    """The parsed config, {} when there is no file; exits with one line on a key outside ALLOWED or a file that
-    does not parse, so a misspelt key is never read as "not set"."""
+    """The parsed config, {} when there is no file; exits with one line on a key outside ALLOWED, a value of the wrong
+    type or a file that does not parse, so a misspelt key is never read as "not set"."""
     try:
         with open(path, "rb") as fh:
             cfg = tomllib.load(fh)
@@ -30,11 +33,21 @@ def config(path):
         return {}
     except tomllib.TOMLDecodeError as e:
         sys.exit(f".room/config.toml does not parse: {e}")
+    for k, v in cfg.items():
+        if k in ALLOWED and isinstance(v, dict) != bool(ALLOWED[k]):
+            sys.exit(f"'{k}' in .room/config.toml must be {'a table' if ALLOWED[k] else 'a value, not a table'}")
     known = {k for k, v in ALLOWED.items() if not v} | {f"{k}.{x}" for k, v in ALLOWED.items() if v for x in v}
-    said = [k for k, v in cfg.items() if not isinstance(v, dict)] + [f"{k}.{x}" for k, v in cfg.items() if isinstance(v, dict) for x in v]
-    for k in said:
+    said = {k: v for k, v in cfg.items() if not isinstance(v, dict)} | {f"{k}.{x}": y for k, v in cfg.items() if isinstance(v, dict) for x, y in v.items()}
+    for k, v in said.items():
         if k not in known:
             sys.exit(f"unknown key '{k}' in .room/config.toml; allowed: {', '.join(sorted(known))}")
+        if k in DATES:
+            try:
+                time.strptime(str(v), "%Y-%m-%d")
+            except ValueError:
+                sys.exit(f"'{k}' in .room/config.toml must be a date, YYYY-MM-DD")
+        if k in LISTS and not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
+            sys.exit(f"'{k}' in .room/config.toml must be a list of strings")
     return cfg
 
 

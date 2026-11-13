@@ -5,7 +5,7 @@
 # itself still catches an e-mail address (the canary).
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-t=$(mktemp -d); trap 'rm -rf "$t"' EXIT
+t=$(mktemp -d); trap 'rm -rf "$t" "$HOME/.cache/bare-png"' EXIT  # the copy is named bare, and so is its PNG cache
 python3 room/dashboard.py --selftest > /dev/null
 python3 room/agent.py --selftest > /dev/null
 python3 room/dashboard.py --project example --export "$t/full" > /dev/null

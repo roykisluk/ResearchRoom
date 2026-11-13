@@ -66,3 +66,6 @@ expose it to anyone else. Collaborators get the published copy, which has no pan
 ## Developing
 `tools/pre-push` runs the self-tests, exports the example, and runs `tools/clean-check.sh`, which keeps personal
 details out of this repository. Install it once: `ln -s ../../tools/pre-push .git/hooks/pre-push`. MIT licence.
+
+Comments in the code cite dated notes (`docs/plans/…`, `DECISIONS`, `docs/lessons.md`, dates such as 10-20). They are the
+design notes of the project the dashboard was first built in, and they are not in this repository.
