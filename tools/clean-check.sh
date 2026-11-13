@@ -5,12 +5,15 @@
 # Built-in patterns: an e-mail address (the reserved example.org, example.com and example.net and the two no-reply
 # addresses of commit trailers excepted), a home
 # folder path. Plus one extended regular expression per line of the deny-list, which holds the personal strings
-# themselves and so lives outside the repository: ~/.config/researchroom/denylist, or $ROOM_DENYLIST.
+# themselves and so lives outside the repository: ~/.config/researchroom/denylist, or $ROOM_DENYLIST. An allow-list beside
+# it (~/.config/researchroom/allowlist, or $ROOM_ALLOWLIST) names, one expression per line, the few strings that contain
+# a personal one and may still appear, such as the project's website; only the whole string passes.
 # Prints file:line:match for each hit and exits 1; exits 0 when clean; exits 2 when a pattern is not a valid
 # expression, since grep would then report nothing. A missing deny-list is a warning: the built-in patterns alone
 # prove little. Binary files (figures, icons) are not read.
 set -u
 deny=${ROOM_DENYLIST:-$HOME/.config/researchroom/denylist}
+allow=${ROOM_ALLOWLIST:-$HOME/.config/researchroom/allowlist}
 pat=$(mktemp); trap 'rm -f "$pat"' EXIT
 printf '%s\n' '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' '/ho''me/' '/Us''ers/' > "$pat"  # split, so this file does not match itself
 if [ -f "$deny" ]; then
@@ -18,8 +21,11 @@ if [ -f "$deny" ]; then
 else
   echo "clean-check: no deny-list at $deny: only the built-in patterns are checked" >&2
 fi
-grep -E -f "$pat" /dev/null; [ $? -eq 2 ] && { echo "clean-check: a line of $deny is not a valid expression" >&2; exit 2; }
 ok='@example\.(org|com|net)$|:noreply@anthropic\.com$|@users\.noreply\.github\.com$'
+if [ -f "$allow" ]; then  # an allowed string is searched for whole, so grep reports it whole (the leftmost match), and ok drops it
+  while IFS= read -r a; do echo "$a" >> "$pat"; ok="$ok|:($a)\$"; done < <(grep -v -E '^(#|[[:space:]]*$)' "$allow")
+fi
+grep -E -f "$pat" /dev/null; [ $? -eq 2 ] && { echo "clean-check: a line of $deny or $allow is not a valid expression" >&2; exit 2; }
 hits() { grep -I -n -o -E -f "$pat" "$@" | grep -v -E "$ok"; }
 if [ $# -gt 0 ]; then
   out=$(hits -H -- "$@")

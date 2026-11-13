@@ -6,7 +6,8 @@ result. You run it on your own project; nothing is uploaded unless you publish i
 
 ![The room: plots grouped by read date and task on the left, four open cards, the details of one on the right](landing/room.webp)
 
-A live demo, built from the example below, is linked as this repository's website (in the About box).
+A [live demo](https://researchroom.roykisluk.com/demo/), built from the example below, runs on the project's
+[website](https://researchroom.roykisluk.com).
 
 ## What you need
 - Python 3.11 or newer, and poppler (`pdftoppm`) to show PDF figures: `apt install poppler-utils` or `brew install poppler`.

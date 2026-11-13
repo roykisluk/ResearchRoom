@@ -24,4 +24,9 @@ git -C "$t/repo" -c user.name=x -c user.email=x@example.org commit -q -m "as som
 if "$t/repo/tools/clean-check.sh" > /dev/null; then echo "pre-push: the clean check does not read commit messages" >&2; exit 1; fi
 printf '(unclosed\n' > "$t/bad"
 if ROOM_DENYLIST="$t/bad" tools/clean-check.sh "$t/canary" > /dev/null 2>&1; [ $? -ne 2 ]; then echo "pre-push: a bad deny-list pattern did not stop the clean check" >&2; exit 1; fi
+# an allow-list line lets its whole string through, and only that: the deny-list string inside it still fails alone
+printf 'secretname\n' > "$t/deny"; printf 'site\\.secretname\\.org\n' > "$t/allow"
+echo "see site.secretname.org" > "$t/site"; echo "by secretname" > "$t/name"
+ROOM_DENYLIST="$t/deny" ROOM_ALLOWLIST="$t/allow" tools/clean-check.sh "$t/site" > /dev/null || { echo "pre-push: the allow-list did not let an allowed string through" >&2; exit 1; }
+if ROOM_DENYLIST="$t/deny" ROOM_ALLOWLIST="$t/allow" tools/clean-check.sh "$t/name" > /dev/null; then echo "pre-push: the allow-list let a deny-list string through" >&2; exit 1; fi
 echo "pre-push: ok"
