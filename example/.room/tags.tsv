@@ -1,0 +1,10 @@
+# <plot id>	<tag>, <tag>
+figures/01_wage_distribution.pdf	Descriptive
+fam:Event study around the raise	Main effect
+figures/03_bite_binscatter.pdf	Main effect
+figures/04_effects_by_industry.pdf	Who is affected
+figures/05_wage_growth_heatmap.pdf	Who is affected
+fam:Employment in Northvale and its neighbours	Descriptive
+figures/07_decomposition.png	Mechanism
+tables/08_summary_stats.csv	Descriptive
+tables/09_main_regressions.csv	Main effect

@@ -12,7 +12,7 @@ python3 room/dashboard.py --project example --export "$t/full" > /dev/null
 mkdir "$t/bare"; cp -r example/figures example/tables "$t/bare/"
 python3 room/dashboard.py --project "$t/bare" --export "$t/out" > /dev/null
 for d in full out; do
-  python3 -c 'import json, sys; n = len(json.load(open(sys.argv[1]))["plots"]); assert n == 3, f"{sys.argv[1]}: {n} plots, expected 3"' "$t/$d/index.json"
+  python3 -c 'import json, sys; n = len(json.load(open(sys.argv[1]))["plots"]); assert n == 9, f"{sys.argv[1]}: {n} plots, expected 9"' "$t/$d/index.json"
 done
 tools/clean-check.sh
 echo "someone@""university.edu" > "$t/canary"  # split, so this file passes the check

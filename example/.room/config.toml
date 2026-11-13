@@ -1,8 +1,8 @@
 # The dashboard's settings for this project. Every key is optional, and this file lists all of them:
 # a key that is not here stops the dashboard with a message, so a misspelt key is never read as "not set".
 
-name = "Example"                   # page titles. Default: the project folder's name.
-title = "An example project"       # the room's brand and the overview's heading. Default: name.
+name = "Northvale"                 # page titles. Default: the project folder's name.
+title = "Northvale minimum wage (a made-up study)"  # the room's brand and the overview's heading. Default: name.
 floor = "2026-01-01"               # the hosted copy shows only files dated from this day on. Default: every file.
 marks_from = "2026-01-01"          # --labels-todo asks for an importance mark on figures read since. Default: all.
 people = ["Owner", "Coauthor"]     # names offered as note owners; the first is the room's owner. Default: none.

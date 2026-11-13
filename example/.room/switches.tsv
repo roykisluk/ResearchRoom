@@ -1,0 +1,4 @@
+# <script number or *>	<switch>	<help shown behind its (i)>
+*	version	The versions of this output, newest first. Older versions stay, flagged superseded, so you can see what changed.
+02	outcome	The outcome on the left-hand side of the event study.
+06	sample	All workers, or only workers aged 16 to 19.

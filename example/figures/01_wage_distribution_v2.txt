@@ -1,0 +1,1 @@
+Hourly wages of jobs in Northvale in 2018 and 2020, in bins of 0.25. The share of jobs paid below 12.50 falls from 25.0 percent to 2.6 percent. Made-up numbers.

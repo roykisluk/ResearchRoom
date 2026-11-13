@@ -1,0 +1,1 @@
+Hourly wages of jobs in Northvale in 2018 and 2020, in bins of 0.50. Made-up numbers.

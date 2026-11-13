@@ -1,0 +1,8 @@
+# <plot id>	<title>: a name for a plot whose own heading makes a poor title
+figures/01_wage_distribution.pdf	Hourly wages before and after the raise
+figures/03_bite_binscatter.pdf	Employment change against the bite of the minimum
+figures/04_effects_by_industry.pdf	Effect on employment, by industry
+figures/05_wage_growth_heatmap.pdf	Wage growth by age group and year
+figures/07_decomposition.png	Where the wage gain came from
+tables/08_summary_stats.csv	Summary statistics, 2018
+tables/09_main_regressions.csv	Main regressions

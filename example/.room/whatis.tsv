@@ -1,0 +1,5 @@
+# <plot id>	<date approved>	<the question the plot asks>	<its answer>
+fam:Event study around the raise	2026-11-03	Did employment in Northvale fall once the minimum wage rose?	No: employment tracks the neighbouring counties in every year after the raise, while wages pull ahead.
+figures/01_wage_distribution.pdf	2026-10-06	How many jobs did the new minimum reach?	About one job in four paid less than the new minimum in 2018; by 2020 hardly any did.
+figures/03_bite_binscatter.pdf	2026-10-06	Did places where the minimum bit harder lose more jobs?	No: the fitted line is flat.
+figures/07_decomposition.png	2026-11-03	Where did the wage gain come from?	Mostly from raises within firms, less from workers moving to better-paying firms.

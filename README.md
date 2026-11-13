@@ -4,6 +4,10 @@ A dashboard for an empirical research project. It reads the figures and tables y
 them as a *room*: one card per plot, its versions and variants behind switches, grouped by the date you read each
 result. You run it on your own project; nothing is uploaded unless you publish it yourself.
 
+![The room: plots grouped by read date and task on the left, four open cards, the details of one on the right](landing/room.webp)
+
+A live demo, built from the example below, is linked as this repository's website (in the About box).
+
 ## What you need
 - Python 3.11 or newer, and poppler (`pdftoppm`) to show PDF figures: `apt install poppler-utils` or `brew install poppler`.
 - Nothing else for local use: the server is standard library only.
@@ -14,8 +18,10 @@ result. You run it on your own project; nothing is uploaded unless you publish i
 git clone <this repository's URL> ResearchRoom
 python3 ResearchRoom/room/dashboard.py --project ResearchRoom/example
 ```
-Open http://127.0.0.1:8765/room. The example holds three figures, one table and one finding, all from made-up numbers
-(`example/make.py`). For your own project, clone this repository beside it and run, from the project folder:
+Open http://127.0.0.1:8765/room. The example is a made-up study of a minimum-wage rise in an invented region, drawn by
+`example/make.py`: nine plots from three sittings, with versions, switches, equations, captions, and the `.room/` files
+that name, tag and explain them. A link can open cards: `/room?open=<plot id>&open=<plot id>`. For your own project,
+clone this repository beside it and run, from the project folder:
 ```
 python3 ../ResearchRoom/room/dashboard.py --project .
 ```
@@ -66,6 +72,7 @@ expose it to anyone else. Collaborators get the published copy, which has no pan
 ## Developing
 `tools/pre-push` runs the self-tests, exports the example, and runs `tools/clean-check.sh`, which keeps personal
 details out of this repository. Install it once: `ln -s ../../tools/pre-push .git/hooks/pre-push`. MIT licence.
+`tools/site.sh DIR` builds the project's website (`landing/`, and the example's room at `/demo/`); `--deploy` publishes it.
 
 Comments in the code cite dated notes (`docs/plans/…`, `DECISIONS`, `docs/lessons.md`, dates such as 10-20). They are the
 design notes of the project the dashboard was first built in, and they are not in this repository.

@@ -533,6 +533,8 @@ window.agent = {
   // unknown path, api/hello included, with its root page, so the probe would say yes; it has no scripts, so by read date
   if (I.hosted) Object.assign(S, { viewer: "collab", group: "read" });
   else try { CLAUDE = (await fetch("api/hello")).ok; } catch (e) { CLAUDE = false; }
+  // ?open=<plot id>&open=<plot id> opens those cards, for a link that shows a plot (the demo site's); without it the room opens empty
+  S.cards = new URLSearchParams(location.search).getAll("open").filter(pid => P[pid]).map(pid => newCard(pid));
   render();
   if (CLAUDE && window.agentStart) window.agentStart();
 })();

@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ResearchRoom</title>
+<meta name="description" content="A dashboard for an empirical research project: every figure and table your scripts write, in one room, grouped by the day you read them.">
+<link rel="icon" href="favicon.ico" sizes="any"><link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<!-- The project's landing page. tools/site.sh fills in __REPO__ from the git remote and puts the example's room at demo/. -->
+<style>
+:root {
+  --paper:#ffffff; --ink:#18202b; --muted:#5d6878; --line:#e2e6ec; --wash:#f4f6f9;
+  --blue:#2f6fd6; --blue-wash:#eaf1fd; --violet:#7b52d9; --chip:#e9edf2; --chip-on:#cfe0fa;
+  --sans:"Hanken Grotesk", system-ui, sans-serif; --mono:"JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing:border-box; }
+html { -webkit-text-size-adjust:100%; }
+body { margin:0; background:var(--paper); color:var(--ink); font:400 17px/1.6 var(--sans); }
+img { display:block; max-width:100%; height:auto; }
+a { color:var(--blue); }
+code { font-family:var(--mono); font-size:.86em; background:var(--wash); padding:.1em .35em; border-radius:4px; }
+:focus-visible { outline:2px solid var(--blue); outline-offset:2px; border-radius:4px; }
+.wrap { width:min(1120px, 100% - 32px); margin-inline:auto; }
+
+/* header */
+.top { display:flex; align-items:center; justify-content:space-between; padding:18px 0; }
+.brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:18px; color:var(--ink); text-decoration:none; letter-spacing:-.01em; }
+.brand img { width:28px; height:28px; border-radius:7px; }
+.top nav { display:flex; gap:6px; }
+.top nav a { color:var(--ink); text-decoration:none; font-weight:500; padding:6px 12px; border-radius:8px; }
+.top nav a:hover { background:var(--wash); }
+
+/* buttons */
+.btn { display:inline-block; font-weight:600; font-size:16px; padding:11px 20px; border-radius:9px; text-decoration:none; border:1px solid transparent; }
+.btn.pri { background:var(--blue); color:#fff; }
+.btn.pri:hover { background:#255fbf; }
+.btn.sec { background:var(--wash); color:var(--ink); border-color:var(--line); }
+.btn.sec:hover { background:var(--chip); }
+.ctas { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+
+/* hero */
+.hero { text-align:center; padding:72px 0 40px; }
+.hero h1 { font-size:clamp(40px, 6.4vw, 76px); line-height:1.02; font-weight:800; letter-spacing:-.04em; margin:0 auto 22px; max-width:15ch; text-wrap:balance; }
+.hero .lede { font-size:clamp(18px, 2vw, 21px); color:var(--muted); max-width:36em; margin:0 auto 30px; }
+.hero .small { font-size:14px; color:var(--muted); margin:16px 0 0; }
+.shot { width:min(1240px, 100% - 32px); margin:24px auto 0; }
+.shot a { display:block; border:1px solid var(--line); border-radius:14px; overflow:hidden; box-shadow:0 30px 70px -20px rgba(24,32,43,.28), 0 2px 6px rgba(24,32,43,.06); }
+.shot p { text-align:center; color:var(--muted); font-size:14px; margin:14px 0 0; }
+
+section { padding:96px 0 0; }
+h2 { font-size:clamp(30px, 4vw, 44px); line-height:1.08; letter-spacing:-.03em; font-weight:800; margin:0 0 16px; max-width:20ch; }
+h3 { font-size:22px; line-height:1.2; letter-spacing:-.015em; font-weight:700; margin:0 0 10px; }
+.intro { color:var(--muted); font-size:19px; max-width:38em; margin:0 0 40px; }
+
+/* the folder and the card */
+.toy { display:grid; grid-template-columns:minmax(0, 5fr) minmax(0, 7fr); gap:28px; align-items:start; }
+.folder { background:var(--ink); color:#d5dbe4; border-radius:14px; padding:22px 14px; font:400 13.5px/1.5 var(--mono); }
+.folder .dir { color:#8a95a5; padding:0 10px 8px; }
+.folder button { display:block; width:100%; text-align:left; background:none; border:0; color:inherit; font:inherit; padding:7px 10px 7px 26px; border-radius:7px; cursor:pointer; overflow-wrap:anywhere; }
+.folder button:hover { background:rgba(255,255,255,.06); }
+.folder button[aria-current="true"] { background:rgba(106,169,255,.18); color:#fff; }
+.folder .v { color:#6aa9ff; }
+.folder .hint { color:#8a95a5; font-family:var(--sans); font-size:14px; padding:14px 10px 0; margin:0; }
+.card { border:1px solid var(--line); border-radius:14px; padding:20px 22px 14px; box-shadow:0 12px 32px -14px rgba(24,32,43,.22); }
+.card .head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
+.card .head b { font-size:17px; }
+.card .head span { color:var(--muted); font-size:14px; white-space:nowrap; }
+.axis { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:12px; }
+.axis > span { color:var(--muted); font-size:14px; width:4.6em; }
+.chip { font:500 14px/1 var(--sans); color:var(--ink); background:var(--chip); border:1px solid transparent; border-radius:999px; padding:7px 13px; cursor:pointer; }
+.chip[aria-pressed="true"] { background:var(--chip-on); border-color:var(--blue); }
+.chip.off { opacity:.45; }
+.card img { margin-top:14px; width:100%; aspect-ratio:16/9; object-fit:contain; }
+
+/* feature rows */
+.row { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:56px; align-items:center; padding-top:72px; }
+.row:first-of-type { padding-top:0; }
+.row p { color:var(--muted); margin:0; }
+.panel { background:var(--wash); border-radius:18px; padding:40px; display:flex; justify-content:center; }
+.panel img { width:min(300px, 100%); border:1px solid var(--line); border-radius:10px; box-shadow:0 16px 40px -18px rgba(24,32,43,.3); }
+.panel.v { background:#f1edfb; }
+.row.flip .panel { order:-1; }
+
+.three { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:40px; border-top:1px solid var(--line); padding-top:40px; }
+.three p { color:var(--muted); margin:0; font-size:16px; }
+
+/* try it */
+.try pre { background:var(--ink); color:#e5e9ef; font:400 14.5px/1.7 var(--mono); padding:22px 24px; border-radius:14px; overflow-x:auto; margin:0 0 20px; }
+.try pre .c { color:#8a95a5; }
+.try p { color:var(--muted); max-width:44em; }
+.end { text-align:center; padding:112px 0 96px; }
+.end h2 { margin:0 auto 26px; }
+footer { border-top:1px solid var(--line); padding:28px 0 40px; color:var(--muted); font-size:14px; }
+footer .wrap { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+footer a { color:var(--muted); }
+
+@media (max-width: 860px) {
+  .hero { padding-top:40px; }
+  section { padding-top:72px; }
+  .toy, .row, .three { grid-template-columns:minmax(0, 1fr); gap:28px; }
+  .row.flip .panel { order:0; }
+  .row { padding-top:56px; }
+  .panel { padding:24px; }
+}
+</style>
+</head>
+<body>
+<header class="wrap top">
+  <a class="brand" href="./"><img src="apple-touch-icon.png" alt="" width="28" height="28">ResearchRoom</a>
+  <nav><a href="demo/">Demo</a><a href="__REPO__">GitHub</a></nav>
+</header>
+
+<main>
+<div class="wrap hero">
+  <h1>Every figure your scripts draw, in one room.</h1>
+  <p class="lede">ResearchRoom reads the figures and tables your project already writes and lays them out as cards: one per plot, its versions and variants behind switches, grouped by the day you read them. It runs on your own machine, over your own folders.</p>
+  <div class="ctas">
+    <a class="btn pri" href="demo/?open=fam%3AEvent%20study%20around%20the%20raise">Open the demo</a>
+    <a class="btn sec" href="__REPO__">View on GitHub</a>
+  </div>
+  <p class="small">Free and open source. Python 3.11 or newer, standard library only.</p>
+</div>
+<figure class="shot" style="margin-block-end:0">
+  <a href="demo/?open=fam%3AEvent%20study%20around%20the%20raise&amp;open=figures%2F01_wage_distribution.pdf&amp;open=figures%2F07_decomposition.png&amp;open=figures%2F03_bite_binscatter.pdf">
+    <img src="room.webp" width="2720" height="1640" alt="The room: on the left, plots grouped by the day they were read and by task; in the middle, four open plot cards; on the right, the details and switches of the event study.">
+  </a>
+  <p>The demo is a made-up study of a minimum-wage rise in an invented region. Every number in it is invented.</p>
+</figure>
+
+<section class="wrap">
+  <h2>Name your files, and the room sorts them.</h2>
+  <p class="intro">Save each output as <code>N_name_vK</code>: the number of the script that drew it, a name, a version. Every version of a name becomes one card, newest first, with older ones a click away and marked superseded. A small sidecar file beside a figure puts its variants, such as outcomes, samples or bin widths, on switches.</p>
+  <div class="toy">
+    <div class="folder" id="folder">
+      <div class="dir">figures/</div>
+      <p class="hint">Click a file, or a switch on the card.</p>
+    </div>
+    <div class="card">
+      <div class="head"><b>Event study around the raise</b><span id="label"></span></div>
+      <div class="axis" id="outcome"><span>outcome</span></div>
+      <div class="axis" id="version"><span>version</span></div>
+      <img id="fig" width="960" height="540" alt="">
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="row">
+    <div>
+      <h3>Grouped by when you read them</h3>
+      <p>Each read-out you save in <code>docs/runs/</code> starts a group in the tree, so a batch of new results lands together. The tasks set at a meeting split each group, and tags and an importance mark keep the plots someone asked for in view.</p>
+    </div>
+    <div class="panel"><img src="tree.webp" width="598" height="897" alt="The plot tree: two read dates, each split into tasks such as Did jobs fall? and Who gained, and how, with tags and importance marks on each plot."></div>
+  </div>
+  <div class="row flip">
+    <div>
+      <h3>Each plot explains itself</h3>
+      <p>Beside every card sit the estimating equation, typeset from one line of TeX; three sentences on purpose, method and result, which you approve; and the caption your script wrote. The room flags any number in the result sentence that the caption does not give, and a redrawn figure marks its sentences out of date.</p>
+    </div>
+    <div class="panel v"><img src="details.webp" width="720" height="1257" alt="The details panel: the event study's equation and notation, then its purpose, method and result."></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="three">
+    <div>
+      <h3>Share a read-only copy</h3>
+      <p>Export the room as static files and publish it on Cloudflare Pages behind Cloudflare Access. Coauthors see every figure and table and run nothing. Publishing refuses to deploy unless the login still guards every address.</p>
+    </div>
+    <div>
+      <h3>Results from a secure data site</h3>
+      <p>Outputs that come back from a restricted-data enclave, in <code>out/&lt;run&gt;/RELEASE/</code>, join the room dated by the read-out that brought them back.</p>
+    </div>
+    <div>
+      <h3>Ask Claude about a plot</h3>
+      <p>An optional panel answers questions about the plot in focus with Claude Code, on your own login. It is for the project's owner only: the published copy has none.</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap try">
+  <h2>Try it on the example.</h2>
+  <pre><code style="background:none;padding:0;font-size:inherit">git clone __REPO__ ResearchRoom
+python3 ResearchRoom/room/dashboard.py --project ResearchRoom/example
+<span class="c"># then open http://127.0.0.1:8765/room</span></code></pre>
+  <p>You need Python 3.11 or newer, and poppler to show PDF figures. For your own project, clone ResearchRoom beside it and run <code>python3 ../ResearchRoom/room/dashboard.py --project .</code> from the project's folder. Nothing leaves your machine unless you publish it.</p>
+</section>
+
+<div class="wrap end">
+  <h2>See it for yourself.</h2>
+  <div class="ctas">
+    <a class="btn pri" href="demo/?open=fam%3AEvent%20study%20around%20the%20raise">Open the demo</a>
+    <a class="btn sec" href="__REPO__">View on GitHub</a>
+  </div>
+</div>
+</main>
+
+<footer>
+  <div class="wrap"><span>ResearchRoom is open source, under the MIT licence.</span><a href="__REPO__">Source on GitHub</a></div>
+</footer>
+
+<script>
+// the folder and the card: the event study's five files in the demo, and the switches the room shows for them
+const FILES = [["v1", "employment"], ["v1", "wages"], ["v2", "employment"], ["v2", "hours"], ["v2", "wages"]];
+const name = (v, o) => `02_event_study_${v}_${o}`;
+const S = { v: "v2", o: "employment" };
+const has = (v, o) => FILES.some(f => f[0] === v && f[1] === o);
+const folder = document.getElementById("folder"), hint = folder.querySelector(".hint");
+FILES.forEach(([v, o]) => {
+  const b = document.createElement("button");
+  b.dataset.v = v; b.dataset.o = o;
+  b.innerHTML = `02_event_study_<span class="v">${v}</span>_${o}.pdf`;
+  b.onclick = () => set(v, o);
+  folder.insertBefore(b, hint);
+});
+const chips = (id, vals, key) => vals.forEach(val => {
+  const b = document.createElement("button");
+  b.className = "chip"; b.textContent = key === "o" ? val[0].toUpperCase() + val.slice(1) : val; b.dataset[key] = val;
+  // a choice not drawn with the other one jumps to a file that has it, as in the room
+  b.onclick = () => key === "o" ? set(has(S.v, val) ? S.v : "v2", val) : set(val, has(val, S.o) ? S.o : "employment");
+  document.getElementById(id).appendChild(b);
+});
+chips("outcome", ["employment", "wages", "hours"], "o");
+chips("version", ["v2", "v1"], "v");
+function set(v, o) {
+  Object.assign(S, { v, o });
+  const img = document.getElementById("fig");
+  img.src = `demo/png/figures/${name(v, o)}.pdf.plain.png`;
+  img.alt = `Event study of ${o} in Northvale against its neighbours, version ${v.slice(1)}, from made-up numbers.`;
+  document.getElementById("label").textContent = `${o[0].toUpperCase() + o.slice(1)} · ${v}`;
+  folder.querySelectorAll("button").forEach(b => b.setAttribute("aria-current", b.dataset.v === v && b.dataset.o === o));
+  document.querySelectorAll(".chip").forEach(b => {
+    const on = b.dataset.o ? b.dataset.o === o : b.dataset.v === v;
+    b.setAttribute("aria-pressed", on);
+    b.classList.toggle("off", !(b.dataset.o ? has(v, b.dataset.o) : has(b.dataset.v, o)));
+  });
+}
+set("v2", "employment");
+</script>
+</body>
+</html>

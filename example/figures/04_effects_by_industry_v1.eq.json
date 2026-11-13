@@ -1,0 +1,1 @@
+{"eq": "$y_{ict} = \\alpha_{ic} + \\lambda_{it} + \\beta_i \\, \\mathrm{Post}_t \\times \\mathrm{Northvale}_c + \\varepsilon_{ict}$", "notes": ["$y_{ict}$: employment of industry $i$ in county $c$ and year $t$, in logs times 100", "$\\beta_i$: the effect of the raise in industry $i$", "Standard errors clustered by county"]}
