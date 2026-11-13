@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# The check before every push (install once: ln -s ../../tools/pre-push .git/hooks/pre-push). Nothing is pushed
+# unless: both self-tests pass; the example project exports; a project holding only figures/ and tables/ exports
+# (what a new researcher has on the first day); nothing personal is in the files or the history; and the clean check
+# itself still catches an e-mail address (the canary).
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+t=$(mktemp -d); trap 'rm -rf "$t"' EXIT
+python3 room/dashboard.py --selftest > /dev/null
+python3 room/agent.py --selftest > /dev/null
+python3 room/dashboard.py --project example --export "$t/full" > /dev/null
+mkdir "$t/bare"; cp -r example/figures example/tables "$t/bare/"
+python3 room/dashboard.py --project "$t/bare" --export "$t/out" > /dev/null
+for d in full out; do
+  python3 -c 'import json, sys; n = len(json.load(open(sys.argv[1]))["plots"]); assert n == 3, f"{sys.argv[1]}: {n} plots, expected 3"' "$t/$d/index.json"
+done
+tools/clean-check.sh
+echo "someone@""university.edu" > "$t/canary"  # split, so this file passes the check
+if tools/clean-check.sh "$t/canary" > /dev/null; then echo "pre-push: the clean check let an e-mail address through" >&2; exit 1; fi
+# two more canaries: a commit message is checked like a file, and a deny-list line that is not a valid pattern is an error
+mkdir -p "$t/repo/tools"; cp tools/clean-check.sh "$t/repo/tools/"
+git -C "$t/repo" init -q; git -C "$t/repo" add -A
+git -C "$t/repo" -c user.name=x -c user.email=x@example.org commit -q -m "as someone@""university.edu asked"
+if "$t/repo/tools/clean-check.sh" > /dev/null; then echo "pre-push: the clean check does not read commit messages" >&2; exit 1; fi
+printf '(unclosed\n' > "$t/bad"
+if ROOM_DENYLIST="$t/bad" tools/clean-check.sh "$t/canary" > /dev/null 2>&1; [ $? -ne 2 ]; then echo "pre-push: a bad deny-list pattern did not stop the clean check" >&2; exit 1; fi
+echo "pre-push: ok"
