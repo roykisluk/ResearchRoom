@@ -15,7 +15,7 @@ room/site/app/.
 With --claude the server prints a URL carrying a per-launch token; the page keeps it as a SameSite=Strict cookie, and
 every request must name 127.0.0.1 or localhost as its Host (and, for a POST, as its Origin), so no other web page can
 reach the agent. --public HOST (a server with a tunnel) also lets in requests through a Cloudflare tunnel at HOST
-that carry the owner's Access login, checked here (access_ok); the server stays on 127.0.0.1.
+that carry the owner's Access login, or the shared site's function with a reader's login, checked here (identity); the server stays on 127.0.0.1.
 
 An output is NN_<what>_vK[_suffix].<ext>; NN names its script, code/local/NN_<function>_vK.py
 (code/local/CLAUDE.md). The disk is read on every request; nothing outside figures/ and tables/ is
@@ -1725,6 +1725,43 @@ def export(out):
     print(f"exported {len(paths)} files ({len(ix['plots'])} plots) to {out}")
 
 
+CODE_EXT = (".py", ".ipynb", ".r", ".do", ".jl", ".sh", ".sql", ".md")  # analysis code a coauthor's Claude may read
+
+
+def reader_dir(out):
+    """The folder a coauthor's Claude run reads, built afresh (design 11-15, shared Q&A; the owner: the site's files and the
+    analysis code): each file the shared site shows (hosted(), from the floor on) with its caption, equation and layers;
+    the findings and takeaways; and the tracked source files under code/, notebooks without their saved outputs. Not the
+    outputs from before the floor (the 10-worker floor, a legal boundary), captures under out/, plans, notes or config.
+    Returns the number of files and the ids of the plots the shared site shows."""
+    shutil.rmtree(out, ignore_errors=True)
+    ix, paths = hosted(index_now(), since=FLOOR, born=added()), set()
+    for p in ix["plots"].values():
+        for f in p["files"].values():
+            stem = f["path"].rsplit(".", 1)[0]
+            paths |= {f["path"], stem + ".txt", stem + EQ_TXT, stem + LAYERS}
+    paths |= {os.path.relpath(FINDINGS, ROOT)} | {f"docs/runs/{n}" for n in ls("docs", "runs") if TAKEAWAYS.match(n)}
+    code = subprocess.run(["git", "-C", ROOT, "ls-files", "-z", "--", "code"], capture_output=True, text=True).stdout.split("\0")
+    paths |= {c for c in code if c.lower().endswith(CODE_EXT)}
+    n = 0
+    for rel in sorted(paths):
+        src = os.path.join(ROOT, rel)
+        if not rel or not os.path.isfile(src) or os.path.islink(src):
+            continue
+        os.makedirs(os.path.join(out, os.path.dirname(rel)), exist_ok=True)
+        if rel.endswith(".ipynb"):  # a notebook's saved outputs can hold numbers: only its cells' text goes
+            with open(src, encoding="utf-8") as fh:
+                nb = json.load(fh)
+            for c in nb.get("cells", []):
+                c.pop("outputs", None), c.pop("execution_count", None)
+            with open(os.path.join(out, rel), "w", encoding="utf-8") as fh:
+                json.dump(nb, fh)
+        else:
+            shutil.copyfile(src, os.path.join(out, rel))
+        n += 1
+    return n, set(ix["plots"])
+
+
 def row(f, label=None):
     e, url = html.escape, f"/f/{f['dir']}/{quote(f['name'])}"
     flags = "".join(f'<b class="fl {x}">{x}</b>' for x in f["flags"])
@@ -1896,32 +1933,56 @@ def publish():
     return 0
 
 
-def access_ok(tok, key=None):
-    """A Cf-Access-Jwt-Assertion -> True when the team's keys signed it for this app, it has not expired, and it is
-    the owner's (pyjwt; the key client caches the keys and fetches them again on an unknown key id)."""
+# the shared site's Q&A (design 11-15, shared Q&A): its Pages function comes in with a service token for this room's
+# Access app (QA_SERVICE_ID: the token's client id) and forwards the reader's own Access login for the site (PAGES_AUD)
+SERVICE_ID, PAGES_AUD = os.environ.get("QA_SERVICE_ID", ""), os.environ.get("PAGES_AUD", "")
+WHO_NAMES = {str(e).lower(): str(n) for e, n in HOSTED.get("names", {}).items()}  # [hosted] names: email -> name on the cards
+OWNER_ONLY = {"/api/approve", "/api/archive", "/api/importance", "/api/share"}
+
+
+def claims(tok, aud, key=None):
+    """An Access JWT -> its claims when the team's keys signed it for `aud` and it has not expired, else None (pyjwt; the
+    key client caches the keys and fetches them again on an unknown key id)."""
     import jwt
     global KEYS
     try:
         if key is None:
             KEYS = KEYS or jwt.PyJWKClient(CERTS)
             key = KEYS.get_signing_key_from_jwt(tok).key
-        c = jwt.decode(tok, key, algorithms=["RS256"], audience=AUD, options={"require": ["exp", "aud"]})
+        return jwt.decode(tok, key, algorithms=["RS256"], audience=aud, options={"require": ["exp", "aud"]}) if aud else None
     except Exception:
-        return False
-    return bool(AUD) and str(c.get("email", "")).lower() in ROOM_EMAILS
+        return None
+
+
+def identity(h, key=None):
+    """Who sends a request through the tunnel, as (role, name), or None. The owner's own Access login; or the shared
+    site's function: a service token whose common_name is SERVICE_ID plus, in X-Room-Jwt, the reader's own Access login
+    for the site. A header that names a user is never read: only a login the team's keys signed says who it is."""
+    c = claims(h.get("Cf-Access-Jwt-Assertion", ""), AUD, key) or {}
+    if (email := str(c.get("email", "")).lower()):
+        return ("owner", WHO_NAMES.get(email) or email.split("@")[0]) if email in ROOM_EMAILS else None
+    if not SERVICE_ID or c.get("common_name") != SERVICE_ID:
+        return None
+    email = str((claims(h.get("X-Room-Jwt", ""), PAGES_AUD, key) or {}).get("email", "")).lower()
+    return ("owner" if email in ROOM_EMAILS else "reader", WHO_NAMES.get(email) or email.split("@")[0]) if email else None
+
+
+def may(role, path):
+    """A reader asks, files issues and reads threads; approving, archiving, marks and sharing are the owner's."""
+    return role == "owner" or path not in OWNER_ONLY
 
 
 def allowed(h, post=False, key=None):
-    """Under --claude: may a request with headers h use the room? This machine's own page: its Host, its Origin on a
-    POST, the token cookie. Through the tunnel (--public): the tunnel's Host, its Origin on a POST, the owner's Access login."""
+    """Under --claude: who may use the room, as (role, name), or a false value. This machine's own page: its Host, its
+    Origin on a POST, the token cookie (the owner). Through the tunnel (--public): the tunnel's Host, its Origin on a
+    POST, and identity()."""
     host, origin, ok = h.get("Host"), h.get("Origin", ""), {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
     if host in ok:
         if post and origin.split("://")[-1] not in ok:
             return False
         jar = dict(c.strip().split("=", 1) for c in h.get("Cookie", "").split(";") if "=" in c)
-        return secrets.compare_digest(jar.get("cr", ""), TOKEN)
-    return bool(PUBLIC) and host == PUBLIC and (not post or origin == f"https://{PUBLIC}") \
-        and access_ok(h.get("Cf-Access-Jwt-Assertion", ""), key)
+        return ("owner", "") if secrets.compare_digest(jar.get("cr", ""), TOKEN) else None
+    return bool(PUBLIC) and host == PUBLIC and (not post or origin == f"https://{PUBLIC}") and identity(h, key)
 
 
 class Handler(BaseHTTPRequestHandler):  # GET, plus POST for the Claude panel under --claude
@@ -1939,17 +2000,17 @@ class Handler(BaseHTTPRequestHandler):  # GET, plus POST for the Claude panel un
     def local(self, post=False):
         return allowed(self.headers, post)
 
-    def api_get(self, path):
+    def api_get(self, path, who):
         if path == "/api/hello":
-            return self.send(200, b'{"ok":true}', "application/json")
-        if path == "/api/threads":
-            return self.send(200, json.dumps(dict(cards=HUB.cards, status=HUB.status)).encode(), "application/json")
+            return self.send(200, json.dumps(dict(ok=True, role=who[0], who=who[1])).encode(), "application/json")
+        if path == "/api/threads":  # a reader's view: the plots the shared site shows, no steps or approvals (agent.Hub.view)
+            return self.send(200, json.dumps(dict(cards=HUB.view(who[0]), status=HUB.status)).encode(), "application/json")
         if path == "/api/events":  # server-sent events: every card change and status change, until the page goes away
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
-            sub = HUB.subscribe()
+            sub = HUB.subscribe(who[0])
             try:
                 while True:
                     try:
@@ -1967,15 +2028,16 @@ class Handler(BaseHTTPRequestHandler):  # GET, plus POST for the Claude panel un
 
     def do_POST(self):
         path = self.path.split("?")[0]
-        if HUB is None or not path.startswith("/api/") or not self.local(post=True):
+        who = HUB is not None and path.startswith("/api/") and self.local(post=True)
+        if not who or not may(who[0], path):
             return self.send(403, b"forbidden", "text/plain")
         n = int(self.headers.get("Content-Length") or 0)
         if n > 100_000:
             return self.send(413, b"too large", "text/plain")
         d = json.loads(self.rfile.read(n) or b"{}")
         if path == "/api/ask" and d.get("plot") and d.get("text"):
-            out = dict(id=HUB.ask(d["plot"], d.get("parent") or "plot", d["text"], bool(d.get("now")), d.get("ctx") or {},
-                                  d.get("model"), d.get("effort")))  # unknown values fall back to Opus, medium (agent.Hub.ask)
+            out = dict(id=HUB.ask(d["plot"], d.get("parent") or "plot", d["text"], bool(d.get("now")) and who[0] == "owner",
+                                  d.get("ctx") or {}, d.get("model"), d.get("effort"), who=who[1], role=who[0]))  # a reader's question queues
         elif path == "/api/issue" and d.get("plot") and d.get("id"):
             out = HUB.issue(d["plot"], d["id"], str(d.get("link") or "")[:500])
         elif path == "/api/approve" and d.get("id"):
@@ -2004,7 +2066,7 @@ class Handler(BaseHTTPRequestHandler):  # GET, plus POST for the Claude panel un
                 # the launch URL: hand the token over as a cookie
                 return self.send(200, room_page().encode(), "text/html", cookie=f"cr={TOKEN}; HttpOnly; SameSite=Strict; Path=/")
             if path.startswith("/api/"):
-                return self.api_get(path) if self.local() else self.send(403, b"forbidden", "text/plain")
+                return self.api_get(path, who) if (who := self.local()) else self.send(403, b"forbidden", "text/plain")
             if self.headers.get("Host") not in {f"127.0.0.1:{PORT}", f"localhost:{PORT}"} and not self.local():
                 return self.send(403, b"forbidden", "text/plain")
         if path in ("/", "/all"):
@@ -2378,6 +2440,21 @@ def selftest():
                                                                        tok(rsa.generate_private_key(public_exponent=65537, key_size=2048)), "")]
         bad += [dict(pub, Origin="https://evil"), dict(pub, Host="other.example.com")]
         assert not any(allowed(h, post=True, key=k.public_key()) for h in bad)
+        # the shared site's function (design 11-15, shared Q&A): the room app's service token plus the reader's own login
+        g.update(SERVICE_ID="svc1", PAGES_AUD="pages1", WHO_NAMES={"pat@example.org": "Pat"})
+        kp, svc = k.public_key(), jwt.encode(dict(aud="aud1", common_name="svc1", sub="", exp=time.time() + 60), k, "RS256")
+        rd = lambda email, aud="pages1": jwt.encode(dict(aud=aud, email=email, exp=time.time() + 60), k, "RS256")
+        fn = {"Host": "room.example.com", "Origin": "https://room.example.com", "Cf-Access-Jwt-Assertion": svc}
+        assert identity(dict(fn, **{"X-Room-Jwt": rd("Pat@example.org")}), kp) == ("reader", "Pat")
+        assert identity(dict(fn, **{"X-Room-Jwt": rd("gilad@example.org")}), kp) == ("reader", "gilad")
+        assert identity(dict(fn, **{"X-Room-Jwt": rd("owner@example.org")}), kp)[0] == "owner" and identity(pub, kp)[0] == "owner"
+        other = jwt.encode(dict(aud="aud1", common_name="other", exp=time.time() + 60), k, "RS256")
+        for h in (fn, dict(fn, **{"X-Room-Jwt": rd("t@example.org", aud="aud1")}), dict(fn, **{"X-Room-User": "owner@example.org"}),
+                  dict(fn, **{"X-Room-Jwt": "junk"}), dict(fn, **{"Cf-Access-Jwt-Assertion": other, "X-Room-Jwt": rd("t@example.org")})):
+            assert identity(h, kp) is None, h  # a service token alone, a login for the wrong app, a header naming a user
+        assert allowed(dict(fn, **{"X-Room-Jwt": rd("t@example.org")}), post=True, key=kp) == ("reader", "t")
+        assert not may("reader", "/api/approve") and not may("reader", "/api/importance") and may("reader", "/api/ask") and may("owner", "/api/approve")
+        g.update(SERVICE_ID="", PAGES_AUD="", WHO_NAMES={})
         AUD = ""
         assert not allowed(pub, key=k.public_key())
         g["ROOM_EMAILS"] = emails
@@ -2526,6 +2603,23 @@ def selftest():
             if shutil.which("npx"):
                 r = run("--project", d, "--publish")
                 assert r.returncode == 1 and "refusing to deploy" in r.stderr and os.path.isfile(keep), r.stderr
+    with tempfile.TemporaryDirectory() as d:  # the folder a coauthor's Claude reads (design 11-15, shared Q&A)
+        for rel, body in (("figures/10_a_v1.png", ""), ("figures/10_a_v1.txt", "A caption long enough."), ("figures/11_old_v1.png", ""),
+                          ("out/57_capture_v1/x.txt", "a capture"), ("code/local/10_a_v1.py", "print(1)"), ("code/x.json", "{}"),
+                          ("code/clean/n.ipynb", json.dumps({"cells": [{"cell_type": "code", "source": "1", "outputs": [{"text": "42"}],
+                                                                        "execution_count": 3}]})), (".room/config.toml", 'floor = "2026-01-01"\n')):
+            os.makedirs(os.path.join(d, os.path.dirname(rel)), exist_ok=True)
+            with open(os.path.join(d, rel), "w") as fh:
+                fh.write(body)
+        os.utime(os.path.join(d, "figures", "11_old_v1.png"), (1, 1))  # before the floor: never on the shared site
+        for a_ in (["init", "-q"], ["add", "-A"], ["-c", "user.name=x", "-c", "user.email=x@example.org", "commit", "-q", "-m", "x"]):
+            subprocess.run(["git", "-C", d, *a_], capture_output=True)
+        os.utime(os.path.join(d, "figures", "11_old_v1.png"), (1, 1))
+        r = run("--project", d, "--reader-dir", os.path.join(d, "rd")); assert r.returncode == 0, r.stderr
+        got = sorted(os.path.relpath(os.path.join(w, f), os.path.join(d, "rd")) for w, _, fs in os.walk(os.path.join(d, "rd")) for f in fs)
+        assert got == ["code/clean/n.ipynb", "code/local/10_a_v1.py", "figures/10_a_v1.png", "figures/10_a_v1.txt"], got
+        with open(os.path.join(d, "rd", "code", "clean", "n.ipynb")) as fh:
+            assert "42" not in fh.read(), "a notebook's saved outputs reached the reader folder"
     print("selftest ok")
 
 
@@ -2535,6 +2629,7 @@ if __name__ == "__main__":
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--export", metavar="DIR", help="write the room as a static site to DIR")
+    ap.add_argument("--reader-dir", metavar="DIR", help="write the folder a coauthor's Claude reads to DIR (built under --claude)")
     ap.add_argument("--claude", action="store_true", help="add the owner's Claude panel to /room (needs claude-agent-sdk)")
     ap.add_argument("--about-todo", action="store_true", help="list the figures whose Purpose / How / What it shows is missing or outdated")
     ap.add_argument("--labels-todo", action="store_true", help="list the figures without a What is this? line or a tag, and chips named by a file-name token")
@@ -2548,6 +2643,9 @@ if __name__ == "__main__":
         sys.exit(f"no figures/ or tables/ in {ROOT}: run from the project folder or pass --project")
     if a.export:
         sys.exit(export(a.export))
+    if a.reader_dir:
+        print(f"{reader_dir(a.reader_dir)[0]} files in {a.reader_dir}")
+        sys.exit(0)
     if a.publish:
         sys.exit(publish())
     if a.about_todo:
@@ -2565,6 +2663,11 @@ if __name__ == "__main__":
             PUBLIC, AUD = a.public, os.environ.get("ACCESS_AUD", "")
             if not AUD:
                 ap.error("--public needs ACCESS_AUD, the Access app's audience tag")
+            # coauthors come in only through the shared site's function: their runs read this folder, and they see
+            # the threads on the plots that site shows (design 11-15, shared Q&A)
+            HUB.reader_dir = os.path.join(os.path.dirname(PNG_DIR), os.path.basename(PNG_DIR).removesuffix("-png") + "-reader")
+            n, HUB.visible = reader_dir(HUB.reader_dir)
+            print(f"{n} files for coauthors' questions in {HUB.reader_dir}")
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)
     srv.daemon_threads = True  # open event streams do not keep Ctrl-C waiting
     threading.Thread(target=index_now, daemon=True).start()  # fills the title and type caches: a cold index takes ~10 s

@@ -5,7 +5,7 @@
 # room's edits reach main through its commit card), and no Claude run in the clone, unless the run is over 6 hours old.
 #   */5 * * * * $HOME/ResearchRoom/tools/room-server.sh CLONE NAME ENV_FILE HOST PORT >> $HOME/.cache/NAME.log 2>&1
 # CLONE: a clone of the project kept for the room alone. ENV_FILE holds ACCESS_AUD, the tag of the Access app that
-# covers HOST. HOST: the room's address, a public hostname of the tunnel pointing at http://127.0.0.1:PORT.
+# covers HOST, and for the shared site's Q&A QA_SERVICE_ID and PAGES_AUD. HOST: the room's address, a public hostname of the tunnel pointing at http://127.0.0.1:PORT.
 set -euo pipefail
 export PATH=$HOME/.local/bin:$PATH
 clone=$1 name=$2 env=$3 host=$4 port=$5
@@ -13,7 +13,9 @@ engine=$(cd "$(dirname "$0")/.." && pwd)
 stamp=$HOME/.cache/$name-engine log=$HOME/.cache/$name.log
 cd "$clone"
 # only ACCESS_AUD reaches the room: the file may also hold the tunnel's token, which the room's Claude must not inherit
-aud=""; [ -f "$env" ] && aud=$(sed -n 's/^ACCESS_AUD=//p' "$env" | head -1 | tr -d "\"'")
+val() { [ -f "$env" ] && sed -n "s/^$1=//p" "$env" | head -1 | tr -d "\"'" || true; }
+# the shared site's Q&A (design 11-15): its function's service token id and the readers' app tag; neither is a secret
+aud=$(val ACCESS_AUD) svc=$(val QA_SERVICE_ID) pages=$(val PAGES_AUD)
 if tmux has-session -t "=$name" 2>/dev/null; then
   [ -n "$aud" ] || { echo "$(date -Is) $env gives no ACCESS_AUD (not set up?): the running room is left as it is"; exit 0; }
   git fetch -q origin 2>/dev/null || exit 0
@@ -45,4 +47,4 @@ uv=$(command -v uv) || { echo "$(date -Is) uv is not on PATH"; exit 1; }
 # tmux starts a window from its server's environment: the window gets ACCESS_AUD and uv's full path from here.
 # The system Python: uv's own (3.13+) rejects a TLS-inspecting proxy's CA that has no Authority Key Identifier when it
 # fetches Access's keys.
-tmux new -d -s "$name" -c "$PWD" "ACCESS_AUD='$aud' '$uv' run --python /usr/bin/python3 --with claude-agent-sdk --with 'pyjwt[crypto]' python '$engine/room/dashboard.py' --claude --public '$host' --port '$port' >> '$log' 2>&1"
+tmux new -d -s "$name" -c "$PWD" "ACCESS_AUD='$aud' QA_SERVICE_ID='$svc' PAGES_AUD='$pages' '$uv' run --python /usr/bin/python3 --with claude-agent-sdk --with 'pyjwt[crypto]' python '$engine/room/dashboard.py' --claude --public '$host' --port '$port' >> '$log' 2>&1"

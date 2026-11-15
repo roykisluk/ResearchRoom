@@ -46,6 +46,19 @@ if _pf := CFG.get("claude", {}).get("prompt_file"):  # the project's own lines, 
         sys.exit(f"[claude] prompt_file in .room/config.toml: {e}")
 
 
+READER_SYS = """You are answering {who}, a coauthor, in the project's shared dashboard, not in a terminal session.
+- You can only read. The folder you are in holds what the dashboard shows (its figures, tables, captions, equations and
+  findings) and the analysis code under code/. Read, Grep and Glob are your only tools, and nothing outside this folder
+  can be read. Do not suggest commands for {who} to run on the server.
+- First lines of your final reply: `Question: <the question with spelling, capitals and grammar fixed and phrased clearly;
+  the same meaning, names and numbers>`, then `Label: <2-4 words>`, then `Title: <the answer in one line>`. Then the
+  answer, short and in plain words.
+- When there is a real pitfall, or a second way to see it, add a section `### Pitfall: <title>` or `### Another way:
+  <title>`, a few sentences each.
+- When the answer needs data or an analysis that is not in this folder, say so plainly and add a section
+  `### Issue: <title>`: a few lines on what to compute and why. It can be filed as a GitHub issue from the dashboard."""
+
+
 def slug(pid):
     return re.sub(r"[^A-Za-z0-9]+", "-", pid).strip("-")[:120]
 
@@ -63,6 +76,42 @@ def split_answer(text):
     parts = re.split(r"^###\s*(Pitfall|Another way|Issue):\s*(.*)$", "\n".join(lines), flags=re.M)
     extra = [(EXTRA[parts[i]], parts[i + 1].strip(), parts[i + 2].strip()) for i in range(1, len(parts) - 2, 3)]
     return head.get("Label", ""), head.get("Title", ""), head.get("Question", ""), parts[0].strip(), extra
+
+
+READ = ("Read", "Grep", "Glob")  # a coauthor's run has these tools and no other (design 11-15, shared Q&A)
+
+
+def reader_gate(tool, inp, root):
+    """May a coauthor's run make this call? Only Read, Grep or Glob, and only on paths that resolve (symlinks followed)
+    inside root, the reader folder; Read must name its file, Grep and Glob default to root."""
+    if tool not in READ or (tool == "Read" and not inp.get("file_path")):
+        return False
+    real = os.path.realpath(root)
+    for p in [inp[k] for k in ("file_path", "path") if inp.get(k)]:
+        full = os.path.realpath(os.path.join(root, os.path.expanduser(str(p))))
+        if os.path.commonpath([full, real]) != real:
+            return False
+    return True
+
+
+def session_for(cards, par_id, role):
+    """A follow-up to card par_id -> (the card whose Claude session it resumes, or None; the thread's text, when it starts
+    fresh). A session is resumed only within one role: a coauthor must not inherit what the owner's run saw, and the
+    owner's powers must not run on a coauthor's text unread (design 11-15, shared Q&A). Across roles the new run gets the
+    questions and answers on the way to par_id, as the dashboard shows them."""
+    by = {c["id"]: c for c in cards}
+    par = by.get(par_id)
+    src = par if par is None or par.get("session") else by.get(par["par"])
+    if src is None or not src.get("session"):
+        return None, ""
+    if src.get("role", "owner") == role:
+        return src, ""
+    chain, c = [], par
+    while c:
+        chain.append(c)
+        c = by.get(c.get("par"))
+    return None, "\n\n".join(f"{'Question' if c['k'] == 'q' else 'Answer'}: {c.get('h', '')}\n{c.get('b', '')}".strip()
+                              for c in reversed(chain) if c["k"] in ("q", "a"))
 
 
 def to_canvas(pid, path, cards):
@@ -134,6 +183,8 @@ class Hub:
                 if pid:
                     self.cards[pid] = cs
         self.subs, self.waits = [], {}  # event queues; card id -> (loop, future)
+        # set by dashboard.py under --claude: the plots the shared site shows (None: every plot) and the reader folder
+        self.visible, self.reader_dir = None, ""
         self.q, self.running, self.queued, self.status = queue.Queue(), 0, 0, dict(st="idle", plot=None, t0=0)
         threading.Thread(target=self.worker, daemon=True).start()
 
@@ -141,10 +192,26 @@ class Hub:
     def emit(self, ev):
         with self.lock:
             for s in self.subs:
-                s.put(ev)
+                if ev.get("t") != "card":
+                    s.put(ev)
+                elif (c := self.seen(ev["plot"], ev["card"], s.role)) is not None:
+                    s.put(dict(ev, card=c))
 
-    def subscribe(self):
+    def seen(self, pid, c, role):
+        """A card as `role` sees it, or None: a coauthor sees the plots the shared site shows, and no steps, thinking,
+        approvals or changed files (the owner's runs show commands and paths)."""
+        if role == "owner":
+            return c
+        if (self.visible is not None and pid not in self.visible) or c["k"] in ("ok", "act"):
+            return None
+        return {k: v for k, v in c.items() if k not in ("steps", "thinking")}
+
+    def view(self, role):
+        return {pid: v for pid, cs in self.cards.items() if (v := [x for c in cs if (x := self.seen(pid, c, role)) is not None])}
+
+    def subscribe(self, role="owner"):
         s = queue.Queue()
+        s.role = role
         with self.lock:
             self.subs.append(s)
         return s
@@ -167,15 +234,17 @@ class Hub:
             fh.write("\n")
 
     # ---- requests from the page
-    def ask(self, pid, parent, text, now, ctx, model="opus", effort="medium"):
+    def ask(self, pid, parent, text, now, ctx, model=None, effort="medium", who="", role="owner"):
         self.paths[pid] = ctx.get("path", "")
-        model, effort = (model if model in MODELS else "opus"), (effort if effort in EFFORTS else "medium")
+        model = model if model in MODELS else ("sonnet" if role == "reader" else "opus")  # a coauthor's default: Sonnet (the owner, 11-15)
+        effort = effort if effort in EFFORTS else "medium"
+        now = now and role == "owner"  # a coauthor's question waits its turn: one run at a time on the owner's quota
         i = uuid.uuid4().hex[:8]
-        q = dict(id="q" + i, par=parent, k="q", h=text, edge="…", by=f"{OWNER} · " + time.strftime("%m-%d %H:%M"), shared=False)
-        a = dict(id="a" + i, par=q["id"], k="a", h="", b="", live=True, t0=int(time.time() * 1000), steps=[], thinking="")
+        q = dict(id="q" + i, par=parent, k="q", h=text, edge="…", by=f"{who or OWNER} · " + time.strftime("%m-%d %H:%M"), role=role)
+        a = dict(id="a" + i, par=q["id"], k="a", h="", b="", live=True, t0=int(time.time() * 1000), steps=[], thinking="", role=role)
         self.cards.setdefault(pid, []).extend([q, a])
         self.card(pid, q), self.card(pid, a)
-        run = dict(pid=pid, q=q, a=a, text=text, ctx=ctx, model=model, effort=effort)
+        run = dict(pid=pid, q=q, a=a, text=text, ctx=ctx, model=model, effort=effort, who=who or WHO, role=role)
         if now:
             threading.Thread(target=self.execute, args=(run,), daemon=True).start()
         else:
@@ -269,24 +338,26 @@ class Hub:
         pid, a, q, ctx = run["pid"], run["a"], run["q"], run["ctx"]
         start = dirty()
         cards = self.cards[pid]
-        par = next((c for c in cards if c["id"] == q["par"]), None)
-        src = par if par is None or par.get("session") else next((c for c in cards if c["id"] == par["par"]), None)
-        resume = dict(resume=src["session"]) if src and src.get("session") else {}
+        src, history = session_for(cards, q["par"], run["role"])
+        resume = dict(resume=src["session"]) if src else {}
+        asker, reader = run["who"], run["role"] == "reader"
         if resume and src.get("msg") and src["msg"] != self.last_msg(pid, src["session"]):
             resume.update(fork_session=True, resume_session_at=src["msg"])  # a branch from an earlier answer
         if resume:
-            prompt_text = f"{WHO}'s follow-up (now showing: {ctx.get('variant', '')}): {run['text']}"
+            prompt_text = f"{asker}'s follow-up (now showing: {ctx.get('variant', '')}): {run['text']}"
         elif pid.startswith("sit:"):  # the room's sitting box: a question about one takeaway, or about all of them
             prompt_text = (f"Question about the takeaways of one enclave sitting, in the control room.\n{ctx.get('title', pid)}\n"
                            f"Takeaways: {ctx.get('path', '')}; the full readout: {ctx.get('script', '')} (Read both).\n"
                            f"About: {ctx.get('variant', 'all the points')}\n"
                            "Answer in plain words, few numbers; expand on the point and say what supports it.\n"
-                           f"\n{WHO}'s question: {run['text']}")
+                           f"\n{asker}'s question: {run['text']}")
         else:
             prompt_text = (f"Question about one plot in the control room.\nPlot: {ctx.get('title', pid)}\n"
                            f"Showing: {ctx.get('variant', '')}\nFile: {ctx.get('path', '')} (open it with Read to see it)\n"
                            f"Drawn by: {ctx.get('script', '')}\n" + (f"Caption: {ctx['caption']}\n" if ctx.get("caption") else "")
-                           + f"\n{WHO}'s question: {run['text']}")
+                           + f"\n{asker}'s question: {run['text']}")
+        if history:  # a follow-up across roles starts fresh from what the dashboard shows of the thread
+            prompt_text = f"The thread so far, as the dashboard shows it:\n\n{history}\n\n" + prompt_text
 
         async def can_use_tool(name, inp, tctx):
             rules = [r for u in (tctx.suggestions or []) for r in (getattr(u, "rules", None) or [])]
@@ -334,7 +405,22 @@ class Hub:
         async def prompt():
             yield {"type": "user", "message": {"role": "user", "content": prompt_text}}
 
-        opts = ClaudeAgentOptions(cwd=ROOT, model=run["model"], effort=run["effort"], can_use_tool=can_use_tool, include_partial_messages=True,
+        async def read_only(inp, tool_use_id, hctx):  # a coauthor's run: every call is checked here; no card is ever shown
+            ok = reader_gate(inp.get("tool_name", ""), inp.get("tool_input") or {}, self.reader_dir)
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow" if ok else "deny",
+                                           "permissionDecisionReason": "Only reading the dashboard's files is allowed here."}}
+
+        async def deny(name, inp, tctx):
+            return T.PermissionResultDeny(message="Only reading the dashboard's files is allowed here.")
+
+        if reader and not self.reader_dir:
+            raise RuntimeError("the reader folder is not built, so a coauthor's question cannot run")
+        opts = ClaudeAgentOptions(cwd=self.reader_dir, model=run["model"], effort=run["effort"], tools=list(READ), setting_sources=[],
+                                  can_use_tool=deny, include_partial_messages=True, permission_mode="default", strict_mcp_config=True,
+                                  system_prompt={"type": "preset", "preset": "claude_code", "append": READER_SYS.format(who=asker)},
+                                  thinking=T.ThinkingConfigAdaptive(type="adaptive", display="summarized"),
+                                  hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[read_only])]}, **resume) if reader else \
+            ClaudeAgentOptions(cwd=ROOT, model=run["model"], effort=run["effort"], can_use_tool=can_use_tool, include_partial_messages=True,
                                   permission_mode="default", setting_sources=["user", "project", "local"], strict_mcp_config=True,
                                   system_prompt={"type": "preset", "preset": "claude_code", "append": SYS},
                                   thinking=T.ThinkingConfigAdaptive(type="adaptive", display="summarized"),
@@ -478,6 +564,37 @@ def selftest():
     assert not set(git_subs("git status && git log")) - GIT_READ and set(git_subs("git stash")) - GIT_READ
     assert commit_message('git commit -m "add the 15-bin option"') == "add the 15-bin option"
     assert commit_message("git commit -m \"$(cat <<'EOF'\nx\nEOF\n)\"") in ("", "$(cat <<'EOF'\nx\nEOF\n)")
+    # a coauthor's run (design 11-15, shared Q&A): only Read, Grep and Glob, and only inside its folder
+    with tempfile.TemporaryDirectory() as root:
+        os.makedirs(os.path.join(root, "figures"))
+        open(os.path.join(root, "figures", "a.csv"), "w").close()
+        os.symlink("/etc", os.path.join(root, "out"))
+        ok = lambda t, **i: reader_gate(t, i, root)
+        assert ok("Read", file_path="figures/a.csv") and ok("Read", file_path=os.path.join(root, "figures", "a.csv"))
+        assert ok("Grep", pattern="x") and ok("Glob", pattern="*.csv", path="figures") and ok("Grep", pattern="x", path=root)
+        for t, i in [("Bash", {"command": "ls"}), ("Write", {"file_path": "figures/b"}), ("Edit", {"file_path": "figures/a.csv"}),
+                     ("WebFetch", {"url": "https://example.org"}), ("Read", {"file_path": os.path.expanduser("~/.config/x")}),
+                     ("Read", {"file_path": "../x"}), ("Read", {"file_path": "/etc/passwd"}), ("Read", {"file_path": "out/passwd"}),
+                     ("Grep", {"pattern": "x", "path": "/"}), ("Glob", {"pattern": "*", "path": ".."}), ("Read", {})]:
+            assert not ok(t, **i), (t, i)
+    # a follow-up resumes the earlier answer's session within one role; across roles it starts fresh from the thread's text
+    cs = [dict(id="q1", par="plot", k="q", h="Why flat?"), dict(id="a1", par="q1", k="a", h="One slope", b="It is one fit.", session="s1"),
+          dict(id="q2", par="a1", k="q", h="And the bins?", role="reader"),
+          dict(id="a2", par="q2", k="a", h="Twenty", b="Equal counts.", session="s2", role="reader")]
+    assert session_for(cs, "a1", "owner") == (cs[1], "") and session_for(cs, "a2", "reader") == (cs[3], "")
+    src, text = session_for(cs, "a1", "reader")
+    assert src is None and "Why flat?" in text and "It is one fit." in text, text
+    src, text = session_for(cs, "a2", "owner")
+    assert src is None and "And the bins?" in text and "Equal counts." in text and "Why flat?" in text, text
+    # a coauthor's question defaults to Sonnet, queues, and names who asked; a coauthor sees only what the site shows
+    hub.ask("p", "plot", "why?", True, {}, who="pat", role="reader")
+    assert (hub.last["model"], hub.last["role"], hub.last["q"]["by"].split(" · ")[0]) == ("sonnet", "reader", "pat"), hub.last
+    hub.visible = {"p"}
+    hub.cards = {"p": [dict(id="q9", par="plot", k="q", h="Q"), dict(id="a9", par="q9", k="a", h="A", b="b", steps=[["Bash", "ls"]], thinking="t"),
+                       dict(id="ok9", par="a9", k="ok", h="Claude wants to use Bash"), dict(id="act9", par="a9", k="act", h="1 path")],
+                 "hidden": [dict(id="q8", par="plot", k="q", h="Q")]}
+    assert hub.view("reader") == {"p": [dict(id="q9", par="plot", k="q", h="Q"), dict(id="a9", par="q9", k="a", h="A", b="b")]}, hub.view("reader")
+    assert hub.view("owner") == hub.cards
     print("agent selftest ok")
 
 

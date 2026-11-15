@@ -12,6 +12,8 @@ project = "example"                # the Cloudflare Pages project
 hosts = ["room.example.org", "example.pages.dev"]  # the hosts the Access application covers
 access_team = "example"            # <team>.cloudflareaccess.com
 emails = ["owner@example.org"]     # who may use the web room with the Claude panel
+qa = "https://room.example.org"    # the shared site's Claude Q&A: its function forwards /api/* to this room. Default: no Q&A there.
+names = { "coauthor@example.org" = "Coauthor" }  # the name on a reader's Q&A cards. Default: the e-mail before @.
 env_file = "~/.config/cloudflare/example.env"      # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, if you have no wrangler login
 
 [claude]
