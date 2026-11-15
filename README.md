@@ -69,6 +69,8 @@ expose it to anyone else. Collaborators get the published copy, which has no pan
 You pick Opus or Sonnet and the effort for each question (Opus on medium by default). When an answer needs data or a
 script the project does not have, Claude says so and offers an issue card; its button runs `gh issue create` in the
 project, so it needs the GitHub CLI, logged in.
+On a server, `tools/room-tunnel.sh` keeps one Cloudflare tunnel up for every room, and `tools/room-server.sh` keeps one
+project's room up behind it, restarting it when its clone or the engine moves; their first lines give the cron lines.
 
 ## Updating
 `git pull` in your clone. `CHANGELOG.md` has one line for each change that asks you to do something.
