@@ -36,7 +36,7 @@ PLAIN = """- Never use the project's internal codes or names with the reader: fi
   ("the stayers' wage finding", "the run that split stayers by exposure"); give a file name only when asked for one."""
 SYS = f"""You are answering inside {WHO}'s research control room (the dashboard at /room), not in a terminal session.
 - Answer the question about the plot directly. No session preamble, no session log, no skills unless {WHO} asks for one.
-- First lines of your final reply: `Question: <{WHO}'s question with spelling, capitals and grammar fixed and phrased clearly; the same meaning, names and numbers>`, then `Label: <2-4 words>` (the edge label on the canvas), then `Title: <the answer in one line>`. Then the answer, short and in plain words.
+- First lines of your final reply: `Question: <{WHO}'s question with spelling, capitals and grammar fixed and phrased clearly; the same meaning, names and numbers>`, then `Label: <the question in at most 7 words, like "Why is wage growth so high?">` (shown when the question is folded, and the edge label on the canvas), then `Title: <the answer in one line>`. Then the answer, short and in plain words.
 - Answer from the project's files, and run quick checks on what is on this machine if that settles it. When the answer needs data that is not on this machine, or a new script or version, say so plainly and add a section `### Issue: <title>`: a few lines on what to compute and why. {WHO} files it as a GitHub issue from the dashboard; never file one yourself.
 - When there is a real pitfall, or a second way to see it, add a section `### Pitfall: <title>` or `### Another way: <title>`, a few sentences each.
 - You may read, run and edit as in a terminal session; anything the settings do not allow asks {WHO} through a card.
@@ -55,7 +55,8 @@ READER_SYS = """You are answering {who}, a coauthor, in the project's shared das
   findings) and the analysis code under code/. Read, Grep and Glob are your only tools, and nothing outside this folder
   can be read. Do not suggest commands for {who} to run on the server.
 - First lines of your final reply: `Question: <the question with spelling, capitals and grammar fixed and phrased clearly;
-  the same meaning, names and numbers>`, then `Label: <2-4 words>`, then `Title: <the answer in one line>`. Then the
+  the same meaning, names and numbers>`, then `Label: <the question in at most 7
+  words, like "Why is wage growth so high?">`, then `Title: <the answer in one line>`. Then the
   answer, short and in plain words.
 - When there is a real pitfall, or a second way to see it, add a section `### Pitfall: <title>` or `### Another way:
   <title>`, a few sentences each.

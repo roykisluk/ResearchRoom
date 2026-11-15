@@ -17,7 +17,7 @@ const store = {  // "cr2.": the keys of the first room (layouts, navigators, dar
   get(k, d) { try { const v = localStorage.getItem("cr2." + k); return v === null ? d : v; } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem("cr2." + k, v); } catch (e) { /* private window: the toggles just reset */ } },
 };
-const PERSIST = ["theme", "kind", "order", "ptype"];
+const PERSIST = ["theme", "kind", "order", "ptype", "model", "effort"];
 // the grouping by finding is gone (11-12): a stored pick of it reads by read date
 const S = { order: store.get("order", "name"), navw: +store.get("navw", 300), sidew: +store.get("sidew", 360),
   navmin: store.get("navmin", "0") === "1", sidemin: store.get("sidemin", "0") === "1",
@@ -288,17 +288,15 @@ function sideHTML() {
 /* ---------- Q&A cards: a plot's thread in the Claude fold, each follow-up under the card it follows ---------- */
 function cardHTML(c) {
   const secs = c.t0 ? Math.round((Date.now() - c.t0) / 1000) : 0;
-  const stepList = (c.steps || []).map(s => `<li><b>${esc(s[0])}</b><span class="mono">${esc(s[1])}</span></li>`).join("");
   let body = "";
   if (c.live) {
     const head = c.queued ? `<div class="think">⏳ Queued behind the question in progress</div>` : c.waiting ? `<div class="think">✋ Waiting for you · ${secs} s</div>` :
       `<div class="think"><span class="dots"><span></span><span></span><span></span></span>${c.b ? "Writing" : "Thinking"} · ${secs} s</div>`;
-    body = `${head}${c.thinking ? `<details class="done-steps" open><summary>thinking</summary><div class="body">${esc(c.thinking)}</div></details>` : ""}<ul class="steps">${stepList}</ul><div class="body ${c.b ? "cursor" : ""}">${md(c.b || "")}</div>`;
+    body = `${head}<div class="body ${c.b ? "cursor" : ""}">${md(c.b || "")}</div>`;
   } else {
-    const steps = c.steps && c.steps.length ? `<details class="done-steps"><summary>${c.steps.length} step${c.steps.length > 1 ? "s" : ""}${c.thinking ? " · thinking" : ""}</summary>${c.thinking ? `<div class="body">${esc(c.thinking)}</div>` : ""}<ul class="steps">${stepList}</ul></details>` : "";
-    body = `${c.h ? `<h5>${esc(c.h)}</h5>` : ""}${steps}<div class="body">${md(c.b || "")}</div>`;
-    // compact (11-15): a finished answer shows its title line; the steps and the answer open on a click
-    if (c.k === "a") body = `<details class="ans" data-open="ans:${esc(c.id)}" ${S.open["ans:" + c.id] ? "open" : ""}><summary>${c.h ? `<h5>${esc(c.h)}</h5>` : "Answer"}</summary>${steps}<div class="body">${md(c.b || "")}</div></details>`;
+    body = `${c.h ? `<h5>${esc(c.h)}</h5>` : ""}<div class="body">${md(c.b || "")}</div>`;
+    // compact (11-15): a finished answer shows its title line; the answer opens on a click
+    if (c.k === "a") body = `<details class="ans" data-open="ans:${esc(c.id)}" ${S.open["ans:" + c.id] ? "open" : ""}><summary>${c.h ? `<h5>${esc(c.h)}</h5>` : "Answer"}</summary><div class="body">${md(c.b || "")}</div></details>`;
     if (c.k === "iss") { const url = ((c.res || "").match(/https:\/\/\S+/) || [""])[0];
       const done = /^(✓|\(fake\))/.test(c.res || "");  // a failed gh keeps its button, for a retry
       body += (c.res ? `<div class="by">${url ? `<a href="${esc(url)}" target="_blank">${esc(c.res.replace(url, "").trim())}</a>` : esc(c.res)}</div>` : "") +
@@ -309,7 +307,7 @@ function cardHTML(c) {
     if (c.k === "ok") body += c.res ? `<div class="by">${esc(c.res)}</div>` : (c.buttons || []).length ?
       `<div class="okrow">${c.buttons.map(([v, t], i) => `<button class="btn ${i ? "" : "pri"}" data-ok="${esc(c.id)}§${esc(v)}">${esc(t)}</button>`).join("")}</div>` : "";
   }
-  const foot = c.k === "ok" || c.live ? "" : `<div class="by">${esc(c.by || "")}${asks() ? `<button data-reply="${esc(c.pid)}§${esc(c.id)}">↳ follow up here</button>` : ""}</div>`;
+  const foot = c.k === "ok" || c.live ? "" : `<div class="by">${esc((c.by || "").split(" · ").slice(0, 2).join(" · "))}${asks() ? `<button data-reply="${esc(c.pid)}§${esc(c.id)}">↳ follow up here</button>` : ""}</div>`;
   return `<div class="card ${c.k} ${c.live ? "livecard" : ""}" data-card="${esc(c.id)}"><span class="kind ${c.k}">${KIND[c.k]}</span>${c.k === "q" ? `<h5 ${c.orig ? `title="as typed: ${esc(c.orig)}"` : ""}>${esc(c.h)}</h5>` : body}${foot}</div>`;
 }
 function threadHTML(pid) {
@@ -317,7 +315,7 @@ function threadHTML(pid) {
   const bar = q => q.id === S.replyTo ? askBar() : "";
   // a question folds with everything under it on a click on it (the owner, 11-15); its follow-ups restart the depth inside
   const walk = (par, d) => qs.filter(q => (q.par || "plot") === par).map(q => q.k === "q" ?
-    `<details class="qa-item" data-open="qa:${esc(q.id)}" style="--d:${Math.min(d, 4)}" ${S.open["qa:" + q.id] ?? true ? "open" : ""}><summary><div class="qa-edge">${esc(q.edge || "")}</div>${cardHTML(q)}</summary>${bar(q)}${walk(q.id, 1)}</details>` :
+    `<details class="qa-item" data-open="qa:${esc(q.id)}" style="--d:${Math.min(d, 4)}" ${S.open["qa:" + q.id] ?? true ? "open" : ""}><summary><div class="qa-edge">${esc(q.edge || "")}</div><div class="qa-short">${esc(q.edge && !["…", "question"].includes(q.edge) ? q.edge : q.h)}</div>${cardHTML(q)}</summary>${bar(q)}${walk(q.id, 1)}</details>` :
     `<div class="qa" style="--d:${Math.min(d, 4)}">${q.edge ? `<div class="qa-edge">${esc(q.edge)}</div>` : ""}${cardHTML(q)}${bar(q)}</div>` + walk(q.id, d + 1)).join("");
   return walk("plot", 0);
 }
@@ -327,7 +325,7 @@ function askBar() {
   const pid = c.pid, to = (thread(pid).find(q => q.id === S.replyTo) || {}).h;
   return `<div class="askbar"><div class="ctx">${to ? `<span>Follow-up to <b>${esc(to)}</b></span><button class="btn" data-reply="reset">cancel</button>` : `<span>Asking about <b>${esc(P[pid].title)}</b></span>`}</div>
     <textarea id="q" placeholder="${to ? "Your follow-up…" : "Ask Claude about this plot…"}"></textarea>
-    <div class="askrow"><button class="btn pri" id="send" title="Enter: queued behind any run in progress">Ask ⏎</button>${boss() ? `<button class="btn" id="sendnow" title="start at once, beside any run in progress">Ask now</button>` : ""}<select id="model" title="model">${[["opus", "Opus"], ["sonnet", "Sonnet"]].map(([v, t]) => `<option value="${v}" ${model() === v ? "selected" : ""}>${t}</option>`).join("")}</select><select id="effort" title="effort">${["low", "medium", "high"].map(v => `<option ${store.get("effort", "medium") === v ? "selected" : ""}>${v}</option>`).join("")}</select><span class="hint">${boss() ? "full agent · edits need your OK" : "reads only: the site's files and the analysis code"}</span></div></div>`;
+    <div class="askrow"><button class="btn pri" id="send" title="Enter: queued behind any run in progress">Ask ⏎</button>${boss() ? `<button class="btn" id="sendnow" title="start at once, beside any run in progress">Ask now</button>` : ""}${seg("model", [["opus", "Opus"], ["sonnet", "Sonnet"]])}${seg("effort", [["low", "low"], ["medium", "medium"], ["high", "high"]])}<span class="hint">${boss() ? "full agent · edits need your OK" : "reads only: the site's files and the analysis code"}</span></div></div>`;
 }
 
 /* ---------- the cards: a grid that fits the room; the wheel zooms the plot under the mouse ---------- */
@@ -505,7 +503,6 @@ document.addEventListener("toggle", e => { const d = e.target; if (d.dataset && 
 document.addEventListener("change", e => {
   if (e.target.dataset.impsel) { const pid = e.target.dataset.impsel, level = e.target.value;  // on every member of a family
     post("api/importance", { ids: P[pid].members || [pid], level }).then(r => { if (r.ok) { P[pid].importance = level; render(); } }); }
-  if (e.target.id === "model" || e.target.id === "effort") store.set(e.target.id, e.target.value);
   if (e.target.id === "bytask") { S.bytask = e.target.checked; store.set("bytask", S.bytask ? "1" : "0"); render(); }
   if (e.target.id === "grp") { S.group = e.target.value; store.set("group2", S.group); render(); }
   if (e.target.dataset.filt) { S[e.target.dataset.filt] = e.target.value; if (e.target.dataset.filt === "ptype") store.set("ptype", S.ptype); render(); }
@@ -540,10 +537,10 @@ async function hello() {
     const r = await fetch("api/hello", { signal: AbortSignal.timeout(5000) });
     const d = (r.headers.get("Content-Type") || "").includes("json") ? await r.json() : {};
     CLAUDE = !!d.ok; ROLE = CLAUDE ? d.role || "owner" : ""; OFFLINE = !!d.offline;
+    // the ask bar's model: what this browser picked, else Opus for the owner and Sonnet for a coauthor (the owner, 11-15)
+    S.model = store.get("model", ROLE === "reader" ? "sonnet" : "opus"); S.effort = store.get("effort", "medium");
   } catch (e) { CLAUDE = false; }
 }
-// the ask bar's model: what this browser picked, else Opus for the owner and Sonnet for a coauthor (the owner, 11-15)
-const model = () => store.get("model", ROLE === "reader" ? "sonnet" : "opus");
 const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json());
 function upsert(pid, c) { c.pid = pid; const cs = T[pid] = T[pid] || []; const i = cs.findIndex(x => x.id === c.id); if (i >= 0) cs[i] = c; else cs.push(c); }
 function patch(c) {  // a card already on screen changes in place; a new card needs a full render
@@ -569,7 +566,7 @@ window.agentStart = async () => {
 window.agent = {
   ask(c, parent, text, now) {
     const pid = c.pid, f = fileOf(c);
-    post("api/ask", { plot: pid, parent, text, now, model: model(), effort: store.get("effort", "medium"), ctx: { title: P[pid].title, variant: label(pid, c.v), path: f.path, script: P[pid].script,
+    post("api/ask", { plot: pid, parent, text, now, model: S.model, effort: S.effort, ctx: { title: P[pid].title, variant: label(pid, c.v), path: f.path, script: P[pid].script,
       caption: f.caption_txt ? f.path.replace(/\.[^.]+$/, ".txt") : "" } });
     document.getElementById("q").value = ""; S.replyTo = "plot";
   },
