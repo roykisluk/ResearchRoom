@@ -188,6 +188,10 @@ dl.vars { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:2px
 .card.alt { border-left-color:var(--alt); } .card.act { border-left-color:var(--act); } .card.ok { border-left-color:var(--ok); }
 .card .kind.q { color:var(--q); } .card .kind.a { color:var(--a); } .card .kind.pit { color:var(--pit); }
 .card .kind.alt { color:var(--alt); } .card .kind.act { color:var(--act); } .card .kind.ok { color:var(--ok); }
+.card.iss { border-left-color:var(--q); } .card .kind.iss { color:var(--q); }
+details.ans > summary { cursor:pointer; } details.ans > summary h5 { display:inline; }
+select.badge.imp { border:none; font:inherit; font-size:10.5px; font-weight:700; color:var(--pit); background:var(--chip); cursor:pointer; }
+.askrow select { font-size:11.5px; }
 .card h5 { margin:3px 0 4px; font-size:13.5px; }
 .card .body { white-space:pre-wrap; }
 .card .by { color:var(--muted); font-size:11px; margin-top:6px; display:flex; gap:10px; align-items:center; }

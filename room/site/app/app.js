@@ -10,7 +10,7 @@
 let I = null, P = {}, CLAUDE = false;
 const T = {};  // Q&A cards by plot id, from the agent API
 const TXT = {};  // table text by path, fetched once
-const KIND = { q: "QUESTION", a: "ANSWER", pit: "PITFALL", alt: "ANOTHER WAY", act: "CHANGED FILES", ok: "NEEDS YOU" };
+const KIND = { q: "QUESTION", a: "ANSWER", pit: "PITFALL", alt: "ANOTHER WAY", iss: "ISSUE", act: "CHANGED FILES", ok: "NEEDS YOU" };
 
 const store = {  // "cr2.": the keys of the first room (layouts, navigators, dark default) are left behind; "group2": by read
   // date became the default (10-21), so an old "group" pick does not hide it
@@ -242,14 +242,12 @@ function sideHTML() {
   if (!c) return `<div class="side-top">${pin}<span>Details</span></div><div class="empty">Open a plot to see its details here.</div>`;
   const p = P[c.pid], f = fileOf(c);
   const flags = f.flags.map(x => `<span class="flag">${esc(x)}</span>`).join(" ");
-  // The owner's importance mark (10-21), how key the figure is to its task: the button cycles none → ! → !! → !!! → none, on every member of a family
-  const imp = CLAUDE && owner() ? `<button class="btn" data-imp="${esc(c.pid)}" title="importance to its task: click for the next mark (none, !, !!, !!!)">Importance ${p.importance || "–"}</button>` : "";
   const arch = CLAUDE && owner() ? `<button class="btn" data-archive="${esc(c.pid)}" title="${p.archived ? "show it in the tree again" : "hide it from the tree, for collaborators too; the filter's Show archived brings it back"}">${p.archived ? "Restore" : "Archive"}</button>` : "";
   const cap = f.caption_txt ? `<div class="tv cap" data-src="${esc(f.path.replace(/\.[^.]+$/, ".txt"))}">Loading…</div>` : "";
   const qa = CLAUDE && owner() ? sec("claude", `Claude${thread(c.pid).length ? ` · ${thread(c.pid).length}` : ""}`, threadHTML(c.pid) + askBar()) : "";
-  return `<div class="side-top">${pin}<span>Details</span></div><div class="side-head"><b>${esc(title(c.pid))}</b>${impHTML(c.pid)}${p.archived ? ' <span class="badge">archived</span>' : ""}
+  return `<div class="side-top">${pin}<span>Details</span></div><div class="side-head"><b>${esc(title(c.pid))}</b>${impHTML(c.pid, true)}${p.archived ? ' <span class="badge">archived</span>' : ""}
     <div class="pn-meta">${owner() ? `<span class="mono">${esc(f.path.split("/").pop())}</span><br>` : ""}updated ${esc(p.updated)} ${flags}</div>
-    <div class="pn-act"><a class="btn" href="f/${esc(f.path)}" target="_blank">Open file</a>${imp}${arch}</div></div>` +
+    <div class="pn-act"><a class="btn" href="f/${esc(f.path)}" target="_blank">Open file</a>${arch}</div></div>` +
     sec("spec", "Specification", specHTML(f)) + aboutSec(c.pid, f) + sec("switches", "Switches", switcher(c), true) +
     sec("vars", "What the names mean", varsHTML(f)) + qa + sec("caption", "Caption", cap);
 }
@@ -266,6 +264,11 @@ function cardHTML(c) {
   } else {
     const steps = c.steps && c.steps.length ? `<details class="done-steps"><summary>${c.steps.length} step${c.steps.length > 1 ? "s" : ""}${c.thinking ? " · thinking" : ""}</summary>${c.thinking ? `<div class="body">${esc(c.thinking)}</div>` : ""}<ul class="steps">${stepList}</ul></details>` : "";
     body = `${c.h ? `<h5>${esc(c.h)}</h5>` : ""}${steps}<div class="body">${md(c.b || "")}</div>`;
+    // compact (11-15): a finished answer shows its title line; the steps and the answer open on a click
+    if (c.k === "a") body = `<details class="ans"><summary>${c.h ? `<h5>${esc(c.h)}</h5>` : "Answer"}</summary>${steps}<div class="body">${md(c.b || "")}</div></details>`;
+    if (c.k === "iss") { const url = ((c.res || "").match(/https:\/\/\S+/) || [""])[0];
+      body += c.res ? `<div class="by">${url ? `<a href="${esc(url)}" target="_blank">${esc(c.res.replace(url, "").trim())}</a>` : esc(c.res)}</div>` :
+        CLAUDE && owner() ? `<div class="okrow"><button class="btn pri" data-issue="${esc(c.pid)}§${esc(c.id)}" title="gh issue create in the project's repository">Open GitHub issue</button></div>` : ""; }
     if (c.k === "ok" && c.commit && !c.res) body += `<div class="paths">${(c.paths || []).map(([path, on, note]) =>
       `<label><input type="checkbox" value="${esc(path)}" ${on ? "checked" : ""}> <span class="mono">${esc(path)}</span>${note ? ` <span class="badge">${esc(note)}</span>` : ""}</label>`).join("")}</div>
       <textarea class="msg">${esc(c.msg || "")}</textarea>`;
@@ -274,7 +277,7 @@ function cardHTML(c) {
   }
   const share = c.k === "q" && CLAUDE && owner() ? `<button data-share="${esc(c.pid)}§${esc(c.id)}§${c.shared ? "" : "1"}" title="shared threads go to the hosted site, read-only, once that export exists">${c.shared ? "✓ shared" : "share"}</button>` : "";
   const foot = c.k === "ok" || c.live ? "" : `<div class="by">${esc(c.by || "")}${CLAUDE && owner() ? `<button data-reply="${esc(c.pid)}§${esc(c.id)}">↳ follow up here</button>` : ""}${share}</div>`;
-  return `<div class="card ${c.k} ${c.live ? "livecard" : ""}" data-card="${esc(c.id)}"><span class="kind ${c.k}">${KIND[c.k]}</span>${c.k === "q" ? `<h5>${esc(c.h)}</h5>` : body}${foot}</div>`;
+  return `<div class="card ${c.k} ${c.live ? "livecard" : ""}" data-card="${esc(c.id)}"><span class="kind ${c.k}">${KIND[c.k]}</span>${c.k === "q" ? `<h5 ${c.orig ? `title="as typed: ${esc(c.orig)}"` : ""}>${esc(c.h)}</h5>` : body}${foot}</div>`;
 }
 function threadHTML(pid) {
   const qs = thread(pid);
@@ -287,14 +290,14 @@ function askBar() {
   const pid = c.pid, to = S.replyTo === "plot" ? "the plot" : (thread(pid).find(q => q.id === S.replyTo) || {}).h || "the plot";
   return `<div class="askbar"><div class="ctx">Asking about <b>${esc(label(pid, c.v))}</b> · follow-up to <b>${esc(to)}</b>${S.replyTo !== "plot" ? '<button class="btn" data-reply="reset">reset</button>' : ""}</div>
     <textarea id="q" placeholder="Ask Claude about this plot…"></textarea>
-    <div class="askrow"><button class="btn pri" id="send" title="Enter: queued behind any run in progress">Ask ⏎</button><button class="btn" id="sendnow" title="start at once, beside any run in progress">Ask now</button><span class="hint">Opus · full agent · edits need your OK</span></div></div>`;
+    <div class="askrow"><button class="btn pri" id="send" title="Enter: queued behind any run in progress">Ask ⏎</button><button class="btn" id="sendnow" title="start at once, beside any run in progress">Ask now</button><select id="model" title="model">${[["opus", "Opus"], ["sonnet", "Sonnet"]].map(([v, t]) => `<option value="${v}" ${store.get("model", "opus") === v ? "selected" : ""}>${t}</option>`).join("")}</select><select id="effort" title="effort">${["low", "medium", "high"].map(v => `<option ${store.get("effort", "medium") === v ? "selected" : ""}>${v}</option>`).join("")}</select><span class="hint">full agent · edits need your OK</span></div></div>`;
 }
 
 /* ---------- the cards: a grid that fits the room; the wheel zooms the plot under the mouse ---------- */
 function plotCard(c) {
   const p = P[c.pid], f = fileOf(c), sel = S.cards.length > 1 && c.id === focused().id;
   const split = Object.keys(p.files).length > 1 ? `<button class="btn" data-split="${c.id}" title="open this plot again beside this card, to set another option">⇆ split</button>` : "";
-  return `<div class="pc ${sel ? "sel" : ""}" data-node="${c.id}"><div class="pc-head"><span class="kind">${p.kind === "table" ? "TABLE" : "PLOT"}</span><b title="${esc(title(c.pid))}">${esc(title(c.pid))}</b>${impHTML(c.pid)}${p.archived ? '<span class="badge">archived</span>' : ""}${live(c.pid) ? '<span class="live"></span>' : ""}${split}<button class="x" data-close="${c.id}" title="close this card">×</button></div>
+  return `<div class="pc ${sel ? "sel" : ""}" data-node="${c.id}"><div class="pc-head"><span class="kind">${p.kind === "table" ? "TABLE" : "PLOT"}</span><b title="${esc(title(c.pid))}">${esc(title(c.pid))}</b>${impHTML(c.pid, true)}${p.archived ? '<span class="badge">archived</span>' : ""}${live(c.pid) ? '<span class="live"></span>' : ""}${split}<button class="x" data-close="${c.id}" title="close this card">×</button></div>
     ${p.axes.length ? `<div class="pc-opt">${esc(label(c.pid, c.v))}</div>` : ""}<div class="pv" data-pv="${c.id}">${view(f)}</div></div>`;
 }
 // a card's zoom {x, y, k}: the image scaled by k from its top left and moved by x, y, kept inside its box
@@ -332,7 +335,9 @@ const tagsHTML = pid => (P[pid].tags || []).map(t => tagChip(t)).join("");
 // (10-20); ponytail: the thumb loads the card's full-size PNG, a smaller rendering if the tree gets slow
 const imgOf = pid => { const f = P[pid].files[keyOf(pid, DEF[pid] || best(pid))]; return f && f.img; };
 const thumb = pid => imgOf(pid) ? `<img class="thumb" src="${esc(imgOf(pid))}" alt="" loading="lazy">` : "";
-const impHTML = pid => P[pid].importance ? `<span class="badge imp" title="importance to its task">${P[pid].importance}</span>` : "";
+// the owner's importance mark (10-21): in the Claude room a select on the card head and the panel (11-15); the tree shows it plain
+const impHTML = (pid, edit = false) => edit && CLAUDE && owner() ? `<select class="badge imp" data-impsel="${esc(pid)}" title="importance to its task">${["", "!", "!!", "!!!"].map(m => `<option value="${m}" ${(P[pid].importance || "") === m ? "selected" : ""}>${m || "–"}</option>`).join("")}</select>` :
+  P[pid].importance ? `<span class="badge imp" title="importance to its task">${P[pid].importance}</span>` : "";
 function badges(pid) {
   const n = Object.keys(P[pid].files).length, q = thread(pid).length;
   return `${impHTML(pid)}${live(pid) ? '<span class="live"></span>' : ""}${P[pid].archived ? '<span class="badge">archived</span>' : ""}${n > 1 ? `<span class="badge" title="files: options and versions">${n}</span>` : ""}${owner() && q ? `<span class="badge qa">${q} Q&A</span>` : ""}`;
@@ -433,8 +438,9 @@ document.addEventListener("mouseleave", unpop);
 addEventListener("scroll", unpop, true);
 document.addEventListener("click", e => {
   unpop();
+  if (e.target.closest("select")) return;  // the importance select: a re-render would close it
   if (S.open.fmenu && !e.target.closest(".fmenu")) { S.open.fmenu = false; const m = document.querySelector(".fmenu"); if (m) m.open = false; }  // a click elsewhere folds the filter menu
-  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-share],[data-split],[data-close],[data-archive],[data-imp],[data-tag],[data-min],#freset,#send,#sendnow,#pill");
+  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-share],[data-split],[data-close],[data-archive],[data-issue],[data-tag],[data-min],#freset,#send,#sendnow,#pill");
   if (!t) { const n = e.target.closest(".pc[data-node]"); if (n && S.focus !== n.dataset.node) { S.focus = n.dataset.node; S.replyTo = "plot"; render(); } return; }
   if (t.dataset.share && window.agent) { const [pid, id, on] = t.dataset.share.split("§"); window.agent.share(pid, id, !!on); return; }
   if (t.dataset.set) { const [k, v] = t.dataset.set.split("|"); S[k] = v; if (PERSIST.includes(k)) store.set(k, v); render(); }
@@ -447,8 +453,7 @@ document.addEventListener("click", e => {
     else { const [pid, id] = t.dataset.reply.split("§"); S.focus = S.cards.find(c => c.pid === pid).id; S.replyTo = id; }
     render(); const q = document.getElementById("q"); if (q) q.focus(); }
   else if (t.dataset.tag) { S.tag = S.tag === t.dataset.tag ? "" : t.dataset.tag; render(); }
-  else if (t.dataset.imp) { const pid = t.dataset.imp, M = ["", "!", "!!", "!!!"], level = M[(M.indexOf(P[pid].importance || "") + 1) % 4];
-    post("api/importance", { ids: P[pid].members || [pid], level }).then(r => { if (r.ok) { P[pid].importance = level; render(); } }); }
+  else if (t.dataset.issue && window.agent) { const [pid, id] = t.dataset.issue.split("§"); t.disabled = true; window.agent.issue(pid, id); }
   else if (t.dataset.archive) { const pid = t.dataset.archive, on = !P[pid].archived;  // every member, so a later page brings the family back
     post("api/archive", { ids: P[pid].members || [pid], on }).then(r => { if (r.ok) { P[pid].archived = on; render(); } }); }
   else if (t.id === "freset") { S.arch = S.old = false; FILTERS.forEach(([k]) => { S[k] = ""; }); store.set("ptype", ""); render(); }
@@ -459,6 +464,9 @@ document.addEventListener("click", e => {
 document.addEventListener("toggle", e => { const d = e.target; if (d.dataset && d.dataset.open) { S.open[d.dataset.open] = d.open;
   if (d.dataset.open.startsWith("sec:")) store.set(d.dataset.open, d.open ? "1" : "0"); } }, true);
 document.addEventListener("change", e => {
+  if (e.target.dataset.impsel) { const pid = e.target.dataset.impsel, level = e.target.value;  // on every member of a family
+    post("api/importance", { ids: P[pid].members || [pid], level }).then(r => { if (r.ok) { P[pid].importance = level; render(); } }); }
+  if (e.target.id === "model" || e.target.id === "effort") store.set(e.target.id, e.target.value);
   if (e.target.id === "bytask") { S.bytask = e.target.checked; store.set("bytask", S.bytask ? "1" : "0"); render(); }
   if (e.target.id === "grp") { S.group = e.target.value; store.set("group2", S.group); render(); }
   if (e.target.dataset.filt) { S[e.target.dataset.filt] = e.target.value; if (e.target.dataset.filt === "ptype") store.set("ptype", S.ptype); render(); }
@@ -511,7 +519,7 @@ window.agentStart = async () => {
 window.agent = {
   ask(c, parent, text, now) {
     const pid = c.pid, f = fileOf(c);
-    post("api/ask", { plot: pid, parent, text, now, ctx: { title: P[pid].title, variant: label(pid, c.v), path: f.path, script: P[pid].script,
+    post("api/ask", { plot: pid, parent, text, now, model: store.get("model", "opus"), effort: store.get("effort", "medium"), ctx: { title: P[pid].title, variant: label(pid, c.v), path: f.path, script: P[pid].script,
       caption: f.caption_txt ? f.path.replace(/\.[^.]+$/, ".txt") : "" } });
     document.getElementById("q").value = ""; S.replyTo = "plot";
   },
@@ -521,6 +529,7 @@ window.agent = {
     post("api/approve", { id, choice });
   },
   share(pid, id, on) { post("api/share", { plot: pid, id, on }); },
+  issue(pid, id) { post("api/issue", { plot: pid, id, link: location.origin + location.pathname + "?open=" + encodeURIComponent(pid) }); },
 };
 
 /* ---------- start ---------- */

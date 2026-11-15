@@ -28,11 +28,13 @@ GIT_READ = {"status", "diff", "log", "show", "blame", "rev-parse", "ls-files", "
 
 def git_subs(cmd):
     return [m.group(2) for m in GIT_SUB.finditer(cmd)]
+MODELS, EFFORTS = ("opus", "sonnet"), ("low", "medium", "high")  # the ask bar's choices; the first model, medium effort by default
 OWNER = PEOPLE[0] if PEOPLE else "Owner"    # named on the question cards
 WHO = PEOPLE[0] if PEOPLE else "the owner"  # named in the prompts
 SYS = f"""You are answering inside {WHO}'s research control room (the dashboard at /room), not in a terminal session.
 - Answer the question about the plot directly. No session preamble, no session log, no skills unless {WHO} asks for one.
-- First line of your final reply: `Label: <2-4 words>` (the edge label on the canvas). Second line: `Title: <the answer in one line>`. Then the answer, short and in plain words.
+- First lines of your final reply: `Question: <{WHO}'s question with spelling, capitals and grammar fixed and phrased clearly; the same meaning, names and numbers>`, then `Label: <2-4 words>` (the edge label on the canvas), then `Title: <the answer in one line>`. Then the answer, short and in plain words.
+- Answer from the project's files, and run quick checks on what is on this machine if that settles it. When the answer needs data that is not on this machine, or a new script or version, say so plainly and add a section `### Issue: <title>`: a few lines on what to compute and why. {WHO} files it as a GitHub issue from the dashboard; never file one yourself.
 - When there is a real pitfall, or a second way to see it, add a section `### Pitfall: <title>` or `### Another way: <title>`, a few sentences each.
 - You may read, run and edit as in a terminal session; anything the settings do not allow asks {WHO} through a card.
 - Never commit or push on your own. If {WHO} asks for a commit, run `git commit -m "<message>"`: the dashboard shows {WHO} a card and commits the files they tick."""
@@ -48,16 +50,19 @@ def slug(pid):
     return re.sub(r"[^A-Za-z0-9]+", "-", pid).strip("-")[:120]
 
 
+EXTRA = {"Pitfall": "pit", "Another way": "alt", "Issue": "iss"}  # the reply's ### sections -> card kinds
+
+
 def split_answer(text):
-    """Claude's final reply -> (label, title, body, [(kind, title, body)]) per the SYS format; tolerant of a missing line."""
-    lines = text.strip().splitlines()
-    label = title = ""
-    while lines and re.match(r"^\s*(Label|Title):", lines[0]):
+    """Claude's final reply -> (label, title, question, body, [(kind, title, body)]) per the SYS format; the header
+    lines in any order, each one optional."""
+    lines, head = text.strip().splitlines(), {}
+    while lines and re.match(r"^\s*(Label|Title|Question):", lines[0]):
         k, _, v = lines.pop(0).partition(":")
-        label, title = (v.strip(), title) if k.strip() == "Label" else (label, v.strip())
-    parts = re.split(r"^###\s*(Pitfall|Another way):\s*(.*)$", "\n".join(lines), flags=re.M)
-    extra = [("pit" if parts[i] == "Pitfall" else "alt", parts[i + 1].strip(), parts[i + 2].strip()) for i in range(1, len(parts) - 2, 3)]
-    return label, title, parts[0].strip(), extra
+        head[k.strip()] = v.strip()
+    parts = re.split(r"^###\s*(Pitfall|Another way|Issue):\s*(.*)$", "\n".join(lines), flags=re.M)
+    extra = [(EXTRA[parts[i]], parts[i + 1].strip(), parts[i + 2].strip()) for i in range(1, len(parts) - 2, 3)]
+    return head.get("Label", ""), head.get("Title", ""), head.get("Question", ""), parts[0].strip(), extra
 
 
 def to_canvas(pid, path, cards):
@@ -69,7 +74,7 @@ def to_canvas(pid, path, cards):
 
     def place(par, depth):
         for c in kids.get(par, []):
-            text = f"**{ {'q': 'Question', 'a': 'Answer', 'pit': 'Pitfall', 'alt': 'Another way', 'act': 'Changed files', 'ok': 'Needs you'}[c['k']] }**\n\n" \
+            text = f"**{ {'q': 'Question', 'a': 'Answer', 'pit': 'Pitfall', 'alt': 'Another way', 'iss': 'Issue', 'act': 'Changed files', 'ok': 'Needs you'}[c['k']] }**\n\n" \
                    + (f"# {c['h']}\n\n" if c.get("h") else "") + (c.get("b") or "")
             n = {"id": c["id"], "type": "text", "text": text, "x": 600 + depth * 420, "y": row[0] * 260, "width": 380, "height": 220, "x-card": c}
             if c["k"] in COLOR:
@@ -162,14 +167,15 @@ class Hub:
             fh.write("\n")
 
     # ---- requests from the page
-    def ask(self, pid, parent, text, now, ctx):
+    def ask(self, pid, parent, text, now, ctx, model="opus", effort="medium"):
         self.paths[pid] = ctx.get("path", "")
+        model, effort = (model if model in MODELS else "opus"), (effort if effort in EFFORTS else "medium")
         i = uuid.uuid4().hex[:8]
         q = dict(id="q" + i, par=parent, k="q", h=text, edge="…", by=f"{OWNER} · " + time.strftime("%m-%d %H:%M"), shared=False)
         a = dict(id="a" + i, par=q["id"], k="a", h="", b="", live=True, t0=int(time.time() * 1000), steps=[], thinking="")
         self.cards.setdefault(pid, []).extend([q, a])
         self.card(pid, q), self.card(pid, a)
-        run = dict(pid=pid, q=q, a=a, text=text, ctx=ctx)
+        run = dict(pid=pid, q=q, a=a, text=text, ctx=ctx, model=model, effort=effort)
         if now:
             threading.Thread(target=self.execute, args=(run,), daemon=True).start()
         else:
@@ -195,6 +201,31 @@ class Hub:
                 self.card(pid, c)
                 return True
         return False
+
+    def issue(self, pid, cid, link=""):
+        """The owner clicked Open GitHub issue on an issue card: gh issue create in the project, once per card."""
+        with self.lock:
+            c = next((c for c in self.cards.get(pid, []) if c["id"] == cid and c["k"] == "iss"), None)
+            if c is None or c.get("busy") or str(c.get("res", "")).startswith(("✓", "(fake)")):
+                return dict(ok=False, res=(c or {}).get("res", "no such card"))
+            c["busy"] = True
+        q = next((x for x in self.cards[pid] if x["k"] == "q" and any(a["id"] == c["par"] and a["par"] == x["id"] for a in self.cards[pid])), {})
+        body = f"{c.get('b', '')}\n\nAsked in the room about {self.paths.get(pid) or pid}: {q.get('h', '')}" + (f"\n{link}" if link else "")
+        if self.fake:
+            res, ok = f"(fake) would open: {c['h']}", True
+        else:
+            try:
+                r = subprocess.run(["gh", "issue", "create", "--title", c["h"], "--body", body], cwd=ROOT, capture_output=True, text=True, timeout=60)
+                ok = r.returncode == 0
+                url = r.stdout.strip().splitlines()[-1] if ok and r.stdout.strip() else ""
+                res = f"✓ Opened #{url.rsplit('/', 1)[-1]} {url}" if ok else "gh failed: " + (r.stderr or r.stdout).strip()[:300]
+            except (OSError, subprocess.TimeoutExpired) as e:
+                ok, res = False, f"gh failed: {e}"
+        c.pop("busy", None)
+        c["res"] = res
+        self.save(pid)
+        self.card(pid, c)
+        return dict(ok=ok, res=res)
 
     # ---- runs
     def worker(self):  # sequential questions (Enter, the default) run one after another here
@@ -303,7 +334,7 @@ class Hub:
         async def prompt():
             yield {"type": "user", "message": {"role": "user", "content": prompt_text}}
 
-        opts = ClaudeAgentOptions(cwd=ROOT, model="opus", can_use_tool=can_use_tool, include_partial_messages=True,
+        opts = ClaudeAgentOptions(cwd=ROOT, model=run["model"], effort=run["effort"], can_use_tool=can_use_tool, include_partial_messages=True,
                                   permission_mode="default", setting_sources=["user", "project", "local"], strict_mcp_config=True,
                                   system_prompt={"type": "preset", "preset": "claude_code", "append": SYS},
                                   thinking=T.ThinkingConfigAdaptive(type="adaptive", display="summarized"),
@@ -340,13 +371,15 @@ class Hub:
     def finish(self, run, start, text, cost=""):
         """The run's final reply becomes the answer card, its pitfall and another-way cards, and a changed-files card."""
         pid, a, q = run["pid"], run["a"], run["q"]
-        label, title, body, extra = split_answer(text)
+        label, title, question, body, extra = split_answer(text)
         q["edge"] = label or "question"
+        if question and question != q["h"]:  # the cleaned question; the typed one stays on the card
+            q.update(orig=q["h"], h=question)
         secs = round((time.time() * 1000 - a["t0"]) / 1000)
-        a.update(live=False, h=title, b=body, by=f"Claude · {secs} s · {len(a['steps'])} steps{cost}")
+        a.update(live=False, h=title, b=body, by=f"Claude {run['model'].title()} · {run['effort']} · {secs} s · {len(a['steps'])} steps{cost}")
         for k, t, b in extra:
             self.cards[pid].append(dict(id=k + uuid.uuid4().hex[:8], par=a["id"], k=k, h=t, b=b, by="Claude",
-                                        edge={"pit": "watch out", "alt": "another way"}[k]))
+                                        edge={"pit": "watch out", "alt": "another way", "iss": "to do"}[k]))
             self.card(pid, self.cards[pid][-1])
         changed = sorted(p for p, s in dirty().items() if p not in start or start[p] != s)
         if changed:
@@ -379,9 +412,11 @@ class Hub:
         c2.update(res=f"(fake) would commit {choice2.get('paths') if isinstance(choice2, dict) else 'nothing'}" if isinstance(choice2, dict) and choice2.get("do") != "deny" else "✕ Denied")
         self.card(pid, c2)
         self.set_status(st="writing")
-        text = ("Label: safest bins\nTitle: (fake) 20 equal-count bins keep every bin well filled\n"
+        text = ("Question: (fake) " + run["text"][:1].upper() + run["text"][1:].rstrip("?. ") + "?\n"
+                "Label: safest bins\nTitle: (fake) 20 equal-count bins keep every bin well filled\n"
                 "(fake answer) Every scheme keeps enough points in each bin; 33 bins is the tightest.\n\n"
-                "### Pitfall: (fake) the equal-width schemes drop bins\nA bin with too few points is not drawn, so the narrow scheme shows few points.")
+                "### Pitfall: (fake) the equal-width schemes drop bins\nA bin with too few points is not drawn, so the narrow scheme shows few points.\n"
+                "### Issue: (fake) Count the points per bin in the enclave\nThe counts are not in the release; the enclave run would add them.")
         for w in text.split(" "):
             a["b"] += w + " "
             self.card(pid, a)
@@ -409,16 +444,31 @@ class Hub:
 
 
 def selftest():
-    lab, tit, body, extra = split_answer("Label: why one line\nTitle: The line ignores the bins\nIt is one fit.\n\n"
-                                         "### Pitfall: Nine sectors off panel\nThey are in the fit.\n### Another way: Read the slope\nSame slope.")
-    assert (lab, tit, body) == ("why one line", "The line ignores the bins", "It is one fit."), (lab, tit, body)
+    lab, tit, qn, body, extra = split_answer("Label: why one line\nTitle: The line ignores the bins\nIt is one fit.\n\n"
+                                             "### Pitfall: Nine sectors off panel\nThey are in the fit.\n### Another way: Read the slope\nSame slope.")
+    assert (lab, tit, qn, body) == ("why one line", "The line ignores the bins", "", "It is one fit."), (lab, tit, qn, body)
     assert extra == [("pit", "Nine sectors off panel", "They are in the fit."), ("alt", "Read the slope", "Same slope.")], extra
-    assert split_answer("Just an answer.") == ("", "", "Just an answer.", [])
+    assert split_answer("Just an answer.") == ("", "", "", "Just an answer.", [])
+    got = split_answer("Question: Why is the fit flat?\nLabel: flat fit\nTitle: It is one slope\nBody.\n\n"
+                       "### Issue: Run the fit by sector\nNeeds the enclave.")
+    assert got == ("flat fit", "It is one slope", "Why is the fit flat?", "Body.", [("iss", "Run the fit by sector", "Needs the enclave.")]), got
+    assert split_answer("Title: T\nQuestion: Q?\nB")[1:4] == ("T", "Q?", "B")  # the header lines in any order
     cards = [dict(id="q1", par="plot", k="q", h="Why?", edge="why"), dict(id="a1", par="q1", k="a", h="Because", b="x"),
              dict(id="p1", par="a1", k="pit", h="Careful", b="y", edge="watch out")]
     doc = to_canvas("fam:Sector scatter", "figures/76_x_v2.pdf", cards)
     assert from_canvas(json.loads(json.dumps(doc))) == ("fam:Sector scatter", cards)
     assert [n.get("color") for n in doc["nodes"]] == [None, None, "4", "1"], doc["nodes"]
+    to_canvas("p", "f.pdf", [dict(id="i1", par="plot", k="iss", h="Run it", b="x")])  # an issue card has a kind name
+    hub = Hub(fake=True)
+    hub.q.put = lambda run: setattr(hub, "last", run)  # keep the run instead of the worker taking it
+    hub.ask("p", "plot", "why?", False, {}, model="gpt", effort="max")
+    assert (hub.last["model"], hub.last["effort"]) == ("opus", "medium"), hub.last
+    hub.ask("p", "plot", "why?", False, {}, model="sonnet", effort="low")
+    assert (hub.last["model"], hub.last["effort"]) == ("sonnet", "low"), hub.last
+    hub.cards["p"].append(dict(id="iss1", par="a1", k="iss", h="Run the fit by sector", b="Needs the enclave."))
+    r1, r2 = hub.issue("p", "iss1"), hub.issue("p", "iss1")
+    assert r1["ok"] and r1["res"].startswith("(fake) would open") and not r2["ok"], (r1, r2)  # one issue per card
+    assert not hub.issue("p", "nope")["ok"]
     assert {(e["fromNode"], e["toNode"], e.get("label")) for e in doc["edges"]} == {("plot", "q1", "why"), ("q1", "a1", None), ("a1", "p1", "watch out")}
     for cmd, subs in [("git commit -m x", ["commit"]), ("git -C /r push origin main", ["push"]), ("git status", ["status"]),
                       ("git log --grep commit", ["log"]), ("echo commit", []), ("git stash", ["stash"]),

@@ -66,6 +66,9 @@ your script numbers and names; only the labelled name fields are blanked.
 answers questions about a plot with Claude Code. It runs on the Claude Code login of whoever starts the server, with
 that person's settings, and it can edit, commit and push in the project. It is for the project's owner only: do not
 expose it to anyone else. Collaborators get the published copy, which has no panel.
+You pick Opus or Sonnet and the effort for each question (Opus on medium by default). When an answer needs data or a
+script the project does not have, Claude says so and offers an issue card; its button runs `gh issue create` in the
+project, so it needs the GitHub CLI, logged in.
 
 ## Updating
 `git pull` in your clone. `CHANGELOG.md` has one line for each change that asks you to do something.

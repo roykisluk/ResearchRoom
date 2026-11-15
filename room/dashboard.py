@@ -1963,7 +1963,10 @@ class Handler(BaseHTTPRequestHandler):  # GET, plus POST for the Claude panel un
             return self.send(413, b"too large", "text/plain")
         d = json.loads(self.rfile.read(n) or b"{}")
         if path == "/api/ask" and d.get("plot") and d.get("text"):
-            out = dict(id=HUB.ask(d["plot"], d.get("parent") or "plot", d["text"], bool(d.get("now")), d.get("ctx") or {}))
+            out = dict(id=HUB.ask(d["plot"], d.get("parent") or "plot", d["text"], bool(d.get("now")), d.get("ctx") or {},
+                                  d.get("model"), d.get("effort")))  # unknown values fall back to Opus, medium (agent.Hub.ask)
+        elif path == "/api/issue" and d.get("plot") and d.get("id"):
+            out = HUB.issue(d["plot"], d["id"], str(d.get("link") or "")[:500])
         elif path == "/api/approve" and d.get("id"):
             out = dict(ok=HUB.answer(d["id"], d.get("choice")))
         elif path == "/api/archive" and isinstance(d.get("ids"), list):
