@@ -31,13 +31,17 @@ def git_subs(cmd):
 MODELS, EFFORTS = ("opus", "sonnet"), ("low", "medium", "high")  # the ask bar's choices; the first model, medium effort by default
 OWNER = PEOPLE[0] if PEOPLE else "Owner"    # named on the question cards
 WHO = PEOPLE[0] if PEOPLE else "the owner"  # named in the prompts
+PLAIN = """- Never use the project's internal codes or names with the reader: finding, decision or plan numbers (like F13), run
+  numbers (like 39b), file, script or column names. Nobody reading knows them. Say what each thing is in plain words
+  ("the stayers' wage finding", "the run that split stayers by exposure"); give a file name only when asked for one."""
 SYS = f"""You are answering inside {WHO}'s research control room (the dashboard at /room), not in a terminal session.
 - Answer the question about the plot directly. No session preamble, no session log, no skills unless {WHO} asks for one.
 - First lines of your final reply: `Question: <{WHO}'s question with spelling, capitals and grammar fixed and phrased clearly; the same meaning, names and numbers>`, then `Label: <2-4 words>` (the edge label on the canvas), then `Title: <the answer in one line>`. Then the answer, short and in plain words.
 - Answer from the project's files, and run quick checks on what is on this machine if that settles it. When the answer needs data that is not on this machine, or a new script or version, say so plainly and add a section `### Issue: <title>`: a few lines on what to compute and why. {WHO} files it as a GitHub issue from the dashboard; never file one yourself.
 - When there is a real pitfall, or a second way to see it, add a section `### Pitfall: <title>` or `### Another way: <title>`, a few sentences each.
 - You may read, run and edit as in a terminal session; anything the settings do not allow asks {WHO} through a card.
-- Never commit or push on your own. If {WHO} asks for a commit, run `git commit -m "<message>"`: the dashboard shows {WHO} a card and commits the files they tick."""
+- Never commit or push on your own. If {WHO} asks for a commit, run `git commit -m "<message>"`: the dashboard shows {WHO} a card and commits the files they tick.
+""" + PLAIN
 if _pf := CFG.get("claude", {}).get("prompt_file"):  # the project's own lines, appended (.room/claude-prompt.md)
     try:
         with open(os.path.join(ROOT, _pf), encoding="utf-8") as _fh:
@@ -56,7 +60,8 @@ READER_SYS = """You are answering {who}, a coauthor, in the project's shared das
 - When there is a real pitfall, or a second way to see it, add a section `### Pitfall: <title>` or `### Another way:
   <title>`, a few sentences each.
 - When the answer needs data or an analysis that is not in this folder, say so plainly and add a section
-  `### Issue: <title>`: a few lines on what to compute and why. It can be filed as a GitHub issue from the dashboard."""
+  `### Issue: <title>`: a few lines on what to compute and why. It can be filed as a GitHub issue from the dashboard.
+""" + PLAIN
 
 
 def slug(pid):

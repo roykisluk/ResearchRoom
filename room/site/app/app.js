@@ -276,7 +276,7 @@ function sideHTML() {
   const flags = f.flags.map(x => `<span class="flag">${esc(x)}</span>`).join(" ");
   const arch = boss() ? `<button class="btn" data-archive="${esc(c.pid)}" title="${p.archived ? "show it in the tree again" : "hide it from the tree, for collaborators too; the filter's Show archived brings it back"}">${p.archived ? "Restore" : "Archive"}</button>` : "";
   const cap = f.caption_txt ? `<div class="tv cap" data-src="${esc(f.path.replace(/\.[^.]+$/, ".txt"))}">Loading…</div>` : "";
-  const qa = asks() ? sec("claude", `Claude${thread(c.pid).length ? ` · ${thread(c.pid).length}` : ""}`, threadHTML(c.pid) + askBar()) :
+  const qa = asks() ? sec("claude", `Claude${thread(c.pid).length ? ` · ${thread(c.pid).length}` : ""}`, threadHTML(c.pid) + (thread(c.pid).some(q => q.id === S.replyTo) ? "" : askBar())) :
     OFFLINE ? sec("claude", "Claude", `<div class="hint">Claude is offline: its server is down. The dashboard works as usual.</div>`) : "";
   return `<div class="side-top">${pin}<span>Details</span></div><div class="side-head"><b>${esc(title(c.pid))}</b>${impHTML(c.pid, true)}${p.archived ? ' <span class="badge">archived</span>' : ""}
     <div class="pn-meta">${owner() ? `<span class="mono">${esc(f.path.split("/").pop())}</span><br>` : ""}updated ${esc(p.updated)} ${flags}</div>
@@ -314,15 +314,19 @@ function cardHTML(c) {
 }
 function threadHTML(pid) {
   const qs = thread(pid);
-  const walk = (par, d) => qs.filter(q => (q.par || "plot") === par).map(q => `<div class="qa" style="--d:${Math.min(d, 4)}">${q.edge ? `<div class="qa-edge">${esc(q.edge)}</div>` : ""}${cardHTML(q)}</div>` + walk(q.id, d + 1)).join("");
+  const bar = q => q.id === S.replyTo ? askBar() : "";
+  // a question folds with everything under it on a click on it (the owner, 11-15); its follow-ups restart the depth inside
+  const walk = (par, d) => qs.filter(q => (q.par || "plot") === par).map(q => q.k === "q" ?
+    `<details class="qa-item" data-open="qa:${esc(q.id)}" style="--d:${Math.min(d, 4)}" ${S.open["qa:" + q.id] ?? true ? "open" : ""}><summary><div class="qa-edge">${esc(q.edge || "")}</div>${cardHTML(q)}</summary>${bar(q)}${walk(q.id, 1)}</details>` :
+    `<div class="qa" style="--d:${Math.min(d, 4)}">${q.edge ? `<div class="qa-edge">${esc(q.edge)}</div>` : ""}${cardHTML(q)}${bar(q)}</div>` + walk(q.id, d + 1)).join("");
   return walk("plot", 0);
 }
 function askBar() {
   const c = focused();
   if (!asks() || !c) return "";
-  const pid = c.pid, to = S.replyTo === "plot" ? "the plot" : (thread(pid).find(q => q.id === S.replyTo) || {}).h || "the plot";
-  return `<div class="askbar"><div class="ctx">Asking about <b>${esc(label(pid, c.v))}</b> · follow-up to <b>${esc(to)}</b>${S.replyTo !== "plot" ? '<button class="btn" data-reply="reset">reset</button>' : ""}</div>
-    <textarea id="q" placeholder="Ask Claude about this plot…"></textarea>
+  const pid = c.pid, to = (thread(pid).find(q => q.id === S.replyTo) || {}).h;
+  return `<div class="askbar"><div class="ctx">${to ? `<span>Follow-up to <b>${esc(to)}</b></span><button class="btn" data-reply="reset">cancel</button>` : `<span>Asking about <b>${esc(P[pid].title)}</b></span>`}</div>
+    <textarea id="q" placeholder="${to ? "Your follow-up…" : "Ask Claude about this plot…"}"></textarea>
     <div class="askrow"><button class="btn pri" id="send" title="Enter: queued behind any run in progress">Ask ⏎</button>${boss() ? `<button class="btn" id="sendnow" title="start at once, beside any run in progress">Ask now</button>` : ""}<select id="model" title="model">${[["opus", "Opus"], ["sonnet", "Sonnet"]].map(([v, t]) => `<option value="${v}" ${model() === v ? "selected" : ""}>${t}</option>`).join("")}</select><select id="effort" title="effort">${["low", "medium", "high"].map(v => `<option ${store.get("effort", "medium") === v ? "selected" : ""}>${v}</option>`).join("")}</select><span class="hint">${boss() ? "full agent · edits need your OK" : "reads only: the site's files and the analysis code"}</span></div></div>`;
 }
 
@@ -482,7 +486,8 @@ document.addEventListener("click", e => {
   else if (t.dataset.close) { S.cards = S.cards.filter(c => c.id !== t.dataset.close); if (!cardOf(S.focus)) S.focus = S.cards.length ? S.cards[0].id : null; render(); }
   else if (t.dataset.min) { const k = t.dataset.min; S[k] = !S[k]; store.set(k, S[k] ? "1" : "0"); render(); }
   else if (t.dataset.reply) { if (t.dataset.reply === "reset") S.replyTo = "plot";
-    else { const [pid, id] = t.dataset.reply.split("§"); S.focus = S.cards.find(c => c.pid === pid).id; S.replyTo = id; }
+    else { const [pid, id] = t.dataset.reply.split("§"); S.focus = S.cards.find(c => c.pid === pid).id; S.replyTo = id; S.open["qa:" + id] = true; }
+    e.preventDefault();  // a button inside a question's summary must not fold it
     render(); const q = document.getElementById("q"); if (q) q.focus(); }
   else if (t.dataset.tag) { S.tag = S.tag === t.dataset.tag ? "" : t.dataset.tag; render(); }
   else if (t.dataset.ser) { const [id, i] = t.dataset.ser.split("|"), c = cardOf(id), off = c.off || [], l = SVGS[fileOf(c).layers].labels[+i];

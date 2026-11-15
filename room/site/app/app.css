@@ -188,6 +188,11 @@ dl.vars { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:2px
 /* the Claude fold: a plot's thread, each follow-up indented under the card it follows, and the ask box */
 .qa { margin:0 0 8px calc(var(--d, 0) * 12px); }
 .qa-edge { color:var(--muted); font-size:11px; margin:0 0 2px 4px; }
+.qa-item { margin:0 0 8px calc(var(--d, 0) * 12px); }
+.qa-item > summary { list-style:none; cursor:pointer; margin-bottom:8px; } .qa-item > summary::-webkit-details-marker { display:none; }
+.qa-item > summary .qa-edge::before { content:"▾ "; } .qa-item:not([open]) > summary .qa-edge::before { content:"▸ "; }
+.qa-item > summary:hover .card { filter:brightness(.97); }
+.qa .askbar, .qa-item > .askbar { margin:6px 0 0 12px; }
 .card { padding:9px 12px 10px; border-left:3px solid var(--line); background:var(--panel2); border-radius:8px; }
 .card.q { border-left-color:var(--q); } .card.a { border-left-color:var(--a); } .card.pit { border-left-color:var(--pit); }
 .card.alt { border-left-color:var(--alt); } .card.act { border-left-color:var(--act); } .card.ok { border-left-color:var(--ok); }
