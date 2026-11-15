@@ -33,8 +33,9 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;",
 const md = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
 const owner = () => S.viewer === "owner";
 // who may ask (anyone the room answers: on the shared site, coauthors too; design 11-15, shared Q&A), and the owner's
-// own controls (archive, marks, Ask now, approvals): only for the owner's login, and locally only in the owner's view
-const asks = () => CLAUDE && (ROLE === "reader" || owner());
+// own controls (archive, marks, Ask now, approvals): only for the owner's login, and locally only in the owner's view.
+// The hosted copy always shows the collaborator view, so there the login alone decides, for the owner too.
+const asks = () => CLAUDE && (I.hosted || owner());
 const boss = () => CLAUDE && ROLE === "owner" && (I.hosted || owner());
 const keyOf = (pid, v) => P[pid].axes.map(([a]) => v[a]).join("|");
 const parse = (pid, k) => { const o = {}, parts = k.split("|"); P[pid].axes.forEach(([a], i) => { o[a] = parts[i]; }); return o; };
@@ -322,7 +323,7 @@ function askBar() {
   const pid = c.pid, to = S.replyTo === "plot" ? "the plot" : (thread(pid).find(q => q.id === S.replyTo) || {}).h || "the plot";
   return `<div class="askbar"><div class="ctx">Asking about <b>${esc(label(pid, c.v))}</b> · follow-up to <b>${esc(to)}</b>${S.replyTo !== "plot" ? '<button class="btn" data-reply="reset">reset</button>' : ""}</div>
     <textarea id="q" placeholder="Ask Claude about this plot…"></textarea>
-    <div class="askrow"><button class="btn pri" id="send" title="Enter: queued behind any run in progress">Ask ⏎</button>${boss() ? `<button class="btn" id="sendnow" title="start at once, beside any run in progress">Ask now</button>` : ""}<select id="model" title="model">${[["opus", "Opus"], ["sonnet", "Sonnet"]].map(([v, t]) => `<option value="${v}" ${model() === v ? "selected" : ""}>${t}</option>`).join("")}</select><select id="effort" title="effort">${["low", "medium", "high"].map(v => `<option ${store.get("effort", "medium") === v ? "selected" : ""}>${v}</option>`).join("")}</select><span class="hint">full agent · edits need your OK</span></div></div>`;
+    <div class="askrow"><button class="btn pri" id="send" title="Enter: queued behind any run in progress">Ask ⏎</button>${boss() ? `<button class="btn" id="sendnow" title="start at once, beside any run in progress">Ask now</button>` : ""}<select id="model" title="model">${[["opus", "Opus"], ["sonnet", "Sonnet"]].map(([v, t]) => `<option value="${v}" ${model() === v ? "selected" : ""}>${t}</option>`).join("")}</select><select id="effort" title="effort">${["low", "medium", "high"].map(v => `<option ${store.get("effort", "medium") === v ? "selected" : ""}>${v}</option>`).join("")}</select><span class="hint">${boss() ? "full agent · edits need your OK" : "reads only: the site's files and the analysis code"}</span></div></div>`;
 }
 
 /* ---------- the cards: a grid that fits the room; the wheel zooms the plot under the mouse ---------- */
