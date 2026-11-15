@@ -265,10 +265,11 @@ function cardHTML(c) {
     const steps = c.steps && c.steps.length ? `<details class="done-steps"><summary>${c.steps.length} step${c.steps.length > 1 ? "s" : ""}${c.thinking ? " · thinking" : ""}</summary>${c.thinking ? `<div class="body">${esc(c.thinking)}</div>` : ""}<ul class="steps">${stepList}</ul></details>` : "";
     body = `${c.h ? `<h5>${esc(c.h)}</h5>` : ""}${steps}<div class="body">${md(c.b || "")}</div>`;
     // compact (11-15): a finished answer shows its title line; the steps and the answer open on a click
-    if (c.k === "a") body = `<details class="ans"><summary>${c.h ? `<h5>${esc(c.h)}</h5>` : "Answer"}</summary>${steps}<div class="body">${md(c.b || "")}</div></details>`;
+    if (c.k === "a") body = `<details class="ans" data-open="ans:${esc(c.id)}" ${S.open["ans:" + c.id] ? "open" : ""}><summary>${c.h ? `<h5>${esc(c.h)}</h5>` : "Answer"}</summary>${steps}<div class="body">${md(c.b || "")}</div></details>`;
     if (c.k === "iss") { const url = ((c.res || "").match(/https:\/\/\S+/) || [""])[0];
-      body += c.res ? `<div class="by">${url ? `<a href="${esc(url)}" target="_blank">${esc(c.res.replace(url, "").trim())}</a>` : esc(c.res)}</div>` :
-        CLAUDE && owner() ? `<div class="okrow"><button class="btn pri" data-issue="${esc(c.pid)}§${esc(c.id)}" title="gh issue create in the project's repository">Open GitHub issue</button></div>` : ""; }
+      const done = /^(✓|\(fake\))/.test(c.res || "");  // a failed gh keeps its button, for a retry
+      body += (c.res ? `<div class="by">${url ? `<a href="${esc(url)}" target="_blank">${esc(c.res.replace(url, "").trim())}</a>` : esc(c.res)}</div>` : "") +
+        (!done && CLAUDE && owner() ? `<div class="okrow"><button class="btn pri" data-issue="${esc(c.pid)}§${esc(c.id)}" title="gh issue create in the project's repository">Open GitHub issue</button></div>` : ""); }
     if (c.k === "ok" && c.commit && !c.res) body += `<div class="paths">${(c.paths || []).map(([path, on, note]) =>
       `<label><input type="checkbox" value="${esc(path)}" ${on ? "checked" : ""}> <span class="mono">${esc(path)}</span>${note ? ` <span class="badge">${esc(note)}</span>` : ""}</label>`).join("")}</div>
       <textarea class="msg">${esc(c.msg || "")}</textarea>`;
@@ -478,7 +479,7 @@ document.addEventListener("change", e => {
 document.addEventListener("input", e => { if (e.target.id === "filter") { S.filter = e.target.value; const at = e.target.selectionStart; render();
   const f = document.getElementById("filter"); f.focus(); f.setSelectionRange(at, at); } });
 document.addEventListener("keydown", e => {
-  if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") {
+  if (["TEXTAREA", "INPUT", "SELECT"].includes(e.target.tagName)) {
     if (e.key === "Enter" && !e.shiftKey && e.target.id === "q") { e.preventDefault(); document.getElementById("send").click(); } return; }
   const c = focused(); if (!c || !P[c.pid].axes.length || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
   const p = P[c.pid], [a, vals] = p.axes[0], avail = vals.filter(v => p.files[keyOf(c.pid, { ...c.v, [a]: v })]);
