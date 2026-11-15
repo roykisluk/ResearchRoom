@@ -10,7 +10,7 @@ two families (<stem>.variant.json). It writes .room/about.tsv too, since each ro
 describes. Last, it dates every output by its sitting: outside git the room reads an output's date from its
 modification time, so the demo site, built from a copy (tools/site.sh), groups the plots by the three sittings.
 """
-import csv, hashlib, json, os, shutil, time
+import csv, hashlib, html, json, os, shutil, time
 
 import matplotlib
 matplotlib.use("Agg")
@@ -33,12 +33,24 @@ def write(path, text, sitting):
     DATED.append((path, sitting))
 
 
-def save(fig, name, sitting, ptype, caption, eq=None, variant=None):
+def save(fig, name, sitting, ptype, caption, eq=None, variant=None, layers=False):
     """figures/<name> and the files a figure script writes beside it."""
     path = os.path.join(HERE, "figures", name)
     stem = path.rsplit(".", 1)[0]
     fig.tight_layout()
     fig.savefig(path, dpi=150, **({"metadata": {"CreationDate": None}} if name.endswith(".pdf") else {}))  # same bytes each run
+    if layers:  # the room's Series chips: each legend series tagged ser-<i>-<j>, its legend entry ser-<i>-leg / -legh
+        ax, lg = fig.axes[0], fig.axes[0].get_legend()
+        labels = [t.get_text() for t in lg.texts]
+        for i, lab in enumerate(labels):
+            for j, a in enumerate(x for x in ax.lines + ax.collections if x.get_label() == lab):
+                a.set_gid(f"ser-{i}-{j}")
+            lg.texts[i].set_gid(f"ser-{i}-leg"); lg.legend_handles[i].set_gid(f"ser-{i}-legh")
+        with plt.rc_context({"svg.fonttype": "none", "svg.hashsalt": "room"}):  # labels as text; the room loads the font
+            fig.savefig(stem + ".layers.svg", format="svg", metadata={"Date": None})
+        with open(stem + ".layers.svg", encoding="utf-8") as fh:
+            svg = fh.read()
+        write(stem + ".layers.svg", svg.replace("<svg ", f'<svg data-series="{html.escape(json.dumps(labels))}" ', 1), sitting)
     plt.close(fig)
     DATED.append((path, sitting))
     write(stem + ".txt", caption + " Made-up numbers.", sitting)
@@ -129,7 +141,7 @@ ax.plot(xs, coef[0] + coef[1] * xs, color=PURPLE, linewidth=1.2, label="Fitted l
 ax.axhline(0, color="#444", linewidth=0.8)
 ax.set_xlabel("Bite: share of jobs paid below 12.50 in 2018"); ax.set_ylabel("Employment change, 2018 to 2020, percent")
 ax.set_title("Employment change against the bite of the new minimum"); ax.legend()
-save(fig, "03_bite_binscatter_v1.pdf", 2, "binscatter",
+save(fig, "03_bite_binscatter_v1.pdf", 2, "binscatter", layers=True, caption=
      f"Each point is the average of 20 counties, binned by the bite of the new minimum. The fitted slope is "
      f"{coef[1]:.1f} (standard error {slope_se:.1f}), so places where the minimum bit harder lost no more jobs.")
 

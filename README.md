@@ -40,7 +40,10 @@ python3 ../ResearchRoom/room/dashboard.py --project .
   names each such file.
 - **Files a figure script may write beside an output** (`<stem>` is the file name without its extension):
   `<stem>.txt`, the caption; `<stem>.eq.json`, the estimating equation as `{"eq": "<TeX>", "notes": [...]}`;
-  `<stem>.variant.json`, the family a figure belongs to and its option on each switch; `<stem>.ptype`, the plot type.
+  `<stem>.variant.json`, the family a figure belongs to and its option on each switch; `<stem>.ptype`, the plot type;
+  `<stem>.layers.svg`, the same page as an SVG whose series can be switched off: each series' marks carry the id
+  `ser-<i>-<j>`, its legend text and handle `ser-<i>-leg` and `ser-<i>-legh`, and the root lists the labels as
+  `data-series`. The room shows it in place of the image, with one chip per series; `example/make.py` writes one.
 
 ## The project's own data: `.room/`
 The dashboard keeps what belongs to your project in `.room/`, inside the project: titles, tags, tasks and the like as

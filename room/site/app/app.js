@@ -120,13 +120,15 @@ function setAxis(c, a, val) {
 // every switch has its ⓘ (11-12): its help from .room/switches.tsv (dashboard.py switch_help), shown on hover or
 // on click (a CSS tooltip since 11-01: the title attribute never showed); `dashboard.py --export` lists the ones unwritten
 function switcher(c) {
-  const p = P[c.pid];
-  if (!p.axes.length) return "";
+  const p = P[c.pid], f = fileOf(c), L = f.layers && SVGS[f.layers] && SVGS[f.layers].labels || [];
+  const ser = L.length > 1 ? `<div class="axis"><span class="ax">Series</span>${L.map((l, i) =>
+    `<button class="chip ${(c.off || []).includes(i) ? "" : "on"}" data-ser="${c.id}|${i}" title="show or hide this series">${esc(l)}</button>`).join("")}</div>` : "";
+  if (!p.axes.length) return ser;
   const help = a => (p.help || {})[a] || "Not described yet.";
   return p.axes.map(([a, vals]) => `<div class="axis"><span class="ax">${esc(a)} <span class="info" tabindex="0" role="note" aria-label="${esc(help(a))}" data-help="${esc(help(a))}">ⓘ</span></span>` + vals.map(val => {
     const ok = !!p.files[keyOf(c.pid, { ...c.v, [a]: val })];
     return `<button class="chip ${c.v[a] === val ? "on" : ""} ${ok ? "" : "off"}" data-axis="${c.id}|${esc(a)}|${esc(val)}" title="${ok ? "" : "not drawn with the other choices; click to jump"}">${esc(val)}</button>`;
-  }).join("") + `</div>`).join("");
+  }).join("") + `</div>`).join("") + ser;
 }
 
 /* ---------- tables drawn as tables: Markdown (headings, paragraphs, pipe tables) and CSV ---------- */
@@ -199,9 +201,28 @@ function fillTables() {
   });
 }
 const TEXT = /\.(md|csv|tex|txt|log)$/;
-function view(f) {  // one file: a figure as its image, a text table drawn by fillTables(), anything else in a frame
-  return f.img ? `<img src="${esc(f.img)}" alt="" draggable="false">` : TEXT.test(f.path) ? `<div class="tv" data-src="${esc(f.path)}">Loading…</div>` : `<iframe src="f/${esc(f.path)}"></iframe>`;
+function view(f) {  // one file: a figure as its image (its series layers when it has them), a text table drawn by fillTables(), anything else in a frame
+  return f.layers ? `<div class="svgv" data-svg="${esc(f.layers)}" data-img="${esc(f.img || "")}"></div>` : f.img ? `<img src="${esc(f.img)}" alt="" draggable="false">` : TEXT.test(f.path) ? `<div class="tv" data-src="${esc(f.path)}">Loading…</div>` : `<iframe src="f/${esc(f.path)}"></iframe>`;
 }
+
+// a figure's series layers (dashboard.py LAYERS; 11-15): fetched once; each card keeps its own <svg>, moved into every
+// re-render rather than parsed again (the page redraws several times a second while Claude writes)
+const SVGS = {}, SVGN = {};
+function fillSvgs() {
+  document.querySelectorAll(".svgv[data-svg]").forEach(el => {
+    const u = el.dataset.svg, pv = el.closest(".pv"), c = pv && cardOf(pv.dataset.pv);
+    if (!SVGS[u]) SVGS[u] = fetch(u).then(r => r.text()).then(t => { const doc = new DOMParser().parseFromString(t, "image/svg+xml");
+      let labels = []; try { labels = JSON.parse(doc.documentElement.dataset.series || "[]"); } catch (e) {}
+      SVGS[u] = { doc, labels }; render(); }, () => { SVGS[u] = { failed: true }; render(); });
+    if (SVGS[u].failed) { el.outerHTML = `<img src="${esc(el.dataset.img)}" alt="" draggable="false">`; return; }  // the image, as before
+    if (!SVGS[u].doc || !c) return;
+    const k = c.id + " " + u, n = SVGN[k] || (SVGN[k] = document.importNode(SVGS[u].doc.documentElement, true));
+    el.replaceChildren(n); el.removeAttribute("data-svg"); seriesOff(n, c.off || []);
+  });
+}
+// a series switched off: its marks hidden, its legend entry dimmed (figure_rules.write_layers: ser-<i>-<j>, ser-<i>-leg, ser-<i>-legh)
+const seriesOff = (svg, off) => svg.querySelectorAll('[id^="ser-"]').forEach(g => { const [, i, j] = g.id.split("-"), hide = off.includes(+i);
+  if (j.startsWith("leg")) g.style.opacity = hide ? ".25" : ""; else g.style.display = hide ? "none" : ""; });
 
 /* ---------- the right panel: the card in focus, in folds ---------- */
 // a fold's open state is kept per browser, the same for every plot; only Switches starts open (11-12)
@@ -305,12 +326,12 @@ function plotCard(c) {
 function zoomTo(pv, z) {
   const W = pv.clientWidth, H = pv.clientHeight;
   z.x = Math.min(0, Math.max(W * (1 - z.k), z.x)); z.y = Math.min(0, Math.max(H * (1 - z.k), z.y));
-  const im = pv.querySelector("img"); if (im) im.style.transform = `translate(${z.x}px,${z.y}px) scale(${z.k})`;
+  const im = pv.querySelector("img, .svgv"); if (im) im.style.transform = `translate(${z.x}px,${z.y}px) scale(${z.k})`;
   pv.classList.toggle("zoomed", z.k > 1);
 }
 document.addEventListener("wheel", e => {
   const pv = e.target.closest(".pv"), c = pv && cardOf(pv.dataset.pv);
-  if (!c || !pv.querySelector("img")) return;  // a table scrolls itself
+  if (!c || !pv.querySelector("img, .svgv")) return;  // a table scrolls itself
   e.preventDefault();
   const z = c.z || (c.z = { x: 0, y: 0, k: 1 }), r = pv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
   const k = Math.min(12, Math.max(1, z.k * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))));  // ctrlKey: a trackpad pinch
@@ -319,7 +340,7 @@ document.addEventListener("wheel", e => {
 let pan = null;
 document.addEventListener("pointerdown", e => {
   const pv = e.target.closest(".pv"), c = pv && cardOf(pv.dataset.pv);
-  if (!c || !c.z || c.z.k <= 1 || !pv.querySelector("img")) return;
+  if (!c || !c.z || c.z.k <= 1 || !pv.querySelector("img, .svgv")) return;
   pan = { pv, z: c.z, x: e.clientX - c.z.x, y: e.clientY - c.z.y }; pv.setPointerCapture(e.pointerId); pv.classList.add("drag");
 });
 document.addEventListener("pointermove", e => { if (pan) { pan.z.x = e.clientX - pan.x; pan.z.y = e.clientY - pan.y; zoomTo(pan.pv, pan.z); } });
@@ -405,7 +426,7 @@ function draw() {
     <div class="room">${n ? `<div class="cards" style="--rows:${n > 1 ? 2 : 1}">${S.cards.map(plotCard).join("")}</div>` : '<div class="empty">Tick a plot in the tree to open it.</div>'}</div>
     <div class="grip r" data-grip="sidew" title="drag to resize"></div><aside class="pane side ${S.sidemin ? "min" : ""}">${sideHTML()}</aside>`;
   document.querySelectorAll(".pv[data-pv]").forEach(pv => { const c = cardOf(pv.dataset.pv); if (c && c.z) zoomTo(pv, c.z); });
-  fillTables();
+  fillTables(); fillSvgs();
 }
 
 /* ---------- events ---------- */
@@ -441,7 +462,7 @@ document.addEventListener("click", e => {
   unpop();
   if (e.target.closest("select")) return;  // the importance select: a re-render would close it
   if (S.open.fmenu && !e.target.closest(".fmenu")) { S.open.fmenu = false; const m = document.querySelector(".fmenu"); if (m) m.open = false; }  // a click elsewhere folds the filter menu
-  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-share],[data-split],[data-close],[data-archive],[data-issue],[data-tag],[data-min],#freset,#send,#sendnow,#pill");
+  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-share],[data-split],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],#freset,#send,#sendnow,#pill");
   if (!t) { const n = e.target.closest(".pc[data-node]"); if (n && S.focus !== n.dataset.node) { S.focus = n.dataset.node; S.replyTo = "plot"; render(); } return; }
   if (t.dataset.share && window.agent) { const [pid, id, on] = t.dataset.share.split("§"); window.agent.share(pid, id, !!on); return; }
   if (t.dataset.set) { const [k, v] = t.dataset.set.split("|"); S[k] = v; if (PERSIST.includes(k)) store.set(k, v); render(); }
@@ -454,6 +475,8 @@ document.addEventListener("click", e => {
     else { const [pid, id] = t.dataset.reply.split("§"); S.focus = S.cards.find(c => c.pid === pid).id; S.replyTo = id; }
     render(); const q = document.getElementById("q"); if (q) q.focus(); }
   else if (t.dataset.tag) { S.tag = S.tag === t.dataset.tag ? "" : t.dataset.tag; render(); }
+  else if (t.dataset.ser) { const [id, i] = t.dataset.ser.split("|"), c = cardOf(id), off = c.off || [];
+    c.off = off.includes(+i) ? off.filter(x => x !== +i) : [...off, +i]; render(); }
   else if (t.dataset.issue && window.agent) { const [pid, id] = t.dataset.issue.split("§"); t.disabled = true; window.agent.issue(pid, id); }
   else if (t.dataset.archive) { const pid = t.dataset.archive, on = !P[pid].archived;  // every member, so a later page brings the family back
     post("api/archive", { ids: P[pid].members || [pid], on }).then(r => { if (r.ok) { P[pid].archived = on; render(); } }); }

@@ -117,7 +117,7 @@ def findings_text():
 
 def scan():
     outs = [(d, n, os.path.getmtime(p)) for d in DIRS for n in ls(d)
-            if not n.startswith(".") and not n.endswith((VARIANT, PTYPE_EXT, EQ_EXT, EQ_TXT)) and os.path.isfile(p := os.path.join(ROOT, d, n))]
+            if not n.startswith(".") and not n.endswith((VARIANT, PTYPE_EXT, EQ_EXT, EQ_TXT, LAYERS)) and os.path.isfile(p := os.path.join(ROOT, d, n))]
     return build(outs, [(n, os.path.getmtime(os.path.join(LOCAL, n))) for n in ls("code", "local")])
 
 
@@ -193,6 +193,9 @@ PTYPE_EXT = ".ptype"
 # sidebar (11-12; spec_of).
 EQ_EXT = ".eq.pdf"
 EQ_TXT = ".eq.json"
+# figure_rules.save writes <stem>.layers.svg beside a figure whose legend names two or more series: the same page with
+# each series tagged, which the room shows in place of the image, with a chip per series (design 2026-11-15 §3)
+LAYERS = ".layers.svg"
 
 
 def plot_type(path):
@@ -757,6 +760,9 @@ def index_now(bundled=True):
         for f in p["files"].values():  # an equation kept as text: the room shows the plain page and draws it beside
             if (s := spec_of(f["path"])):
                 f.update(eq=s, img=img_url(f["path"], plain=True))
+            lay = f["path"].rsplit(".", 1)[0] + LAYERS
+            if os.path.isfile(os.path.join(ROOT, lay)):  # its time in the URL, as img_url does: Cloudflare keeps a URL 4 hours
+                f["layers"] = f"f/{quote(lay)}?v={int(os.path.getmtime(os.path.join(ROOT, lay)))}"
     ix["tasks"] = tasks()
     ix["story"] = [dict(r, from_ok=r["from"] in ix["plots"], to_ok=r["to"] in ix["plots"]) for r in story_rows()]
     return ix
@@ -1238,7 +1244,8 @@ def hosted(ix, since=FLOOR, born={}):
     for pid, p in list(ix["plots"].items()):
         files = {c: dict(path=f["path"], img=f["img"], k=f["k"], mtime=f["mtime"], caption_txt=f["caption_txt"],
                          flags=[x for x in f["flags"] if x != "older"], **({"vars": f["vars"]} if f.get("vars") else {}),
-                         **({"about": f["about"]} if f.get("about") else {}), **({"eq": f["eq"]} if f.get("eq") else {}))
+                         **({"about": f["about"]} if f.get("about") else {}), **({"eq": f["eq"]} if f.get("eq") else {}),
+                         **({"layers": f["layers"]} if f.get("layers") else {}))
                  for c, f in p["files"].items() if min(f["mtime"], born.get(f["path"], f["mtime"])) >= since}
         if not files:
             del ix["plots"][pid]
@@ -1647,6 +1654,8 @@ def export(out):
             paths.add(f["path"])
             if f["caption_txt"]:
                 paths.add(f["path"].rsplit(".", 1)[0] + ".txt")
+            if f.get("layers"):
+                paths.add(f["path"].rsplit(".", 1)[0] + LAYERS)
     os.makedirs(os.path.join(out, "app"), exist_ok=True)
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:  # the room is the front page; the overview is
         fh.write(room_page())  # retired on the hosted copy (11-08); room.html stays so /room links keep working
@@ -2428,10 +2437,15 @@ def selftest():
         for n in ("10_a_v1.png", "101_b_v2.png"):
             with open(os.path.join(d, "figures", n), "wb") as fh:
                 fh.write(png)
+        with open(os.path.join(d, "figures", "10_a_v1" + LAYERS), "w") as fh:  # figure_rules.save's series layers (11-15)
+            fh.write('<svg data-series="[&quot;a&quot;, &quot;b&quot;]"></svg>')
         r = run("--project", d, "--export", out); assert r.returncode == 0, r.stderr
         with open(os.path.join(out, "index.json")) as fh:
             ix = json.load(fh)
         assert len(ix["plots"]) == 2, ix["plots"].keys()   # 10 and 101: two plots, both exported
+        lay = [f.get("layers", "") for p_ in ix["plots"].values() for f in p_["files"].values()]
+        assert sorted(x.split("?")[0] for x in lay) == ["", "f/figures/10_a_v1.layers.svg"], lay  # kept on the hosted index
+        assert os.path.isfile(os.path.join(out, "f", "figures", "10_a_v1.layers.svg")) and "not in the room" not in r.stderr, r.stderr
         assert os.path.isfile(os.path.join(out, "f", "figures", "101_b_v2.png")) and os.path.isfile(os.path.join(out, "room.html"))
         g["ROOT"] = d
         try:
