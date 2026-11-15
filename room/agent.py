@@ -488,6 +488,14 @@ class Hub:
             a["steps"].append(step)
             self.card(pid, a)
             await asyncio.sleep(0.6)
+        if run["role"] == "reader":  # a coauthor's run asks no one: the fake skips its two approval cards
+            await asyncio.sleep(0.3)
+        else:
+            await self.fake_approvals(run)
+        await self.fake_answer(run, start)
+
+    async def fake_approvals(self, run):
+        pid = run["pid"]
         c, choice = await self.wait_card(run, dict(h="Claude wants to use Write", b="code/local/scratch_fake.py (fake: nothing is written)",
                                                    buttons=[["once", "Allow once"], ["thread", "Allow Write(code/local/**) for this thread"], ["deny", "Deny"]]))
         c.update(res={"once": "✓ Allowed once", "thread": "✓ Allowed for this thread", "deny": "✕ Denied"}.get(choice, str(choice)))
@@ -497,6 +505,9 @@ class Hub:
                                                      msg="fake: add 15 equal-count bins", buttons=[["commit", "Commit"], ["push", "Commit and push"], ["deny", "Deny"]]))
         c2.update(res=f"(fake) would commit {choice2.get('paths') if isinstance(choice2, dict) else 'nothing'}" if isinstance(choice2, dict) and choice2.get("do") != "deny" else "✕ Denied")
         self.card(pid, c2)
+
+    async def fake_answer(self, run, start):
+        pid, a = run["pid"], run["a"]
         self.set_status(st="writing")
         text = ("Question: (fake) " + run["text"][:1].upper() + run["text"][1:].rstrip("?. ") + "?\n"
                 "Label: safest bins\nTitle: (fake) 20 equal-count bins keep every bin well filled\n"

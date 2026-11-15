@@ -7,7 +7,7 @@
    wheel zooms a plot under the mouse, a drag moves it, a double click resets it. The Claude fold appears only when
    api/hello answers (the Mac, room/agent.py). */
 "use strict";
-let I = null, P = {}, CLAUDE = false;
+let I = null, P = {}, CLAUDE = false, ROLE = "", OFFLINE = false;
 const T = {};  // Q&A cards by plot id, from the agent API
 const TXT = {};  // table text by path, fetched once
 const KIND = { q: "QUESTION", a: "ANSWER", pit: "PITFALL", alt: "ANOTHER WAY", iss: "ISSUE", act: "CHANGED FILES", ok: "NEEDS YOU" };
@@ -32,6 +32,10 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;",
 // card text: escaped, then **bold** and `code` only, as dashboard.py's prose() does for findings
 const md = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
 const owner = () => S.viewer === "owner";
+// who may ask (anyone the room answers: on the shared site, coauthors too; design 11-15, shared Q&A), and the owner's
+// own controls (archive, marks, Ask now, approvals): only for the owner's login, and locally only in the owner's view
+const asks = () => CLAUDE && (ROLE === "reader" || owner());
+const boss = () => CLAUDE && ROLE === "owner" && (I.hosted || owner());
 const keyOf = (pid, v) => P[pid].axes.map(([a]) => v[a]).join("|");
 const parse = (pid, k) => { const o = {}, parts = k.split("|"); P[pid].axes.forEach(([a], i) => { o[a] = parts[i]; }); return o; };
 const lexi = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i]; return 0; };
@@ -269,9 +273,10 @@ function sideHTML() {
   if (!c) return `<div class="side-top">${pin}<span>Details</span></div><div class="empty">Open a plot to see its details here.</div>`;
   const p = P[c.pid], f = fileOf(c);
   const flags = f.flags.map(x => `<span class="flag">${esc(x)}</span>`).join(" ");
-  const arch = CLAUDE && owner() ? `<button class="btn" data-archive="${esc(c.pid)}" title="${p.archived ? "show it in the tree again" : "hide it from the tree, for collaborators too; the filter's Show archived brings it back"}">${p.archived ? "Restore" : "Archive"}</button>` : "";
+  const arch = boss() ? `<button class="btn" data-archive="${esc(c.pid)}" title="${p.archived ? "show it in the tree again" : "hide it from the tree, for collaborators too; the filter's Show archived brings it back"}">${p.archived ? "Restore" : "Archive"}</button>` : "";
   const cap = f.caption_txt ? `<div class="tv cap" data-src="${esc(f.path.replace(/\.[^.]+$/, ".txt"))}">Loading…</div>` : "";
-  const qa = CLAUDE && owner() ? sec("claude", `Claude${thread(c.pid).length ? ` · ${thread(c.pid).length}` : ""}`, threadHTML(c.pid) + askBar()) : "";
+  const qa = asks() ? sec("claude", `Claude${thread(c.pid).length ? ` · ${thread(c.pid).length}` : ""}`, threadHTML(c.pid) + askBar()) :
+    OFFLINE ? sec("claude", "Claude", `<div class="hint">Claude is offline: its server is down. The dashboard works as usual.</div>`) : "";
   return `<div class="side-top">${pin}<span>Details</span></div><div class="side-head"><b>${esc(title(c.pid))}</b>${impHTML(c.pid, true)}${p.archived ? ' <span class="badge">archived</span>' : ""}
     <div class="pn-meta">${owner() ? `<span class="mono">${esc(f.path.split("/").pop())}</span><br>` : ""}updated ${esc(p.updated)} ${flags}</div>
     <div class="pn-act"><a class="btn" href="f/${esc(f.path)}" target="_blank">Open file</a>${arch}</div></div>` +
@@ -296,15 +301,14 @@ function cardHTML(c) {
     if (c.k === "iss") { const url = ((c.res || "").match(/https:\/\/\S+/) || [""])[0];
       const done = /^(✓|\(fake\))/.test(c.res || "");  // a failed gh keeps its button, for a retry
       body += (c.res ? `<div class="by">${url ? `<a href="${esc(url)}" target="_blank">${esc(c.res.replace(url, "").trim())}</a>` : esc(c.res)}</div>` : "") +
-        (!done && CLAUDE && owner() ? `<div class="okrow"><button class="btn pri" data-issue="${esc(c.pid)}§${esc(c.id)}" title="gh issue create in the project's repository">Open GitHub issue</button></div>` : ""); }
+        (!done && asks() ? `<div class="okrow"><button class="btn pri" data-issue="${esc(c.pid)}§${esc(c.id)}" title="gh issue create in the project's repository">Open GitHub issue</button></div>` : ""); }
     if (c.k === "ok" && c.commit && !c.res) body += `<div class="paths">${(c.paths || []).map(([path, on, note]) =>
       `<label><input type="checkbox" value="${esc(path)}" ${on ? "checked" : ""}> <span class="mono">${esc(path)}</span>${note ? ` <span class="badge">${esc(note)}</span>` : ""}</label>`).join("")}</div>
       <textarea class="msg">${esc(c.msg || "")}</textarea>`;
     if (c.k === "ok") body += c.res ? `<div class="by">${esc(c.res)}</div>` : (c.buttons || []).length ?
       `<div class="okrow">${c.buttons.map(([v, t], i) => `<button class="btn ${i ? "" : "pri"}" data-ok="${esc(c.id)}§${esc(v)}">${esc(t)}</button>`).join("")}</div>` : "";
   }
-  const share = c.k === "q" && CLAUDE && owner() ? `<button data-share="${esc(c.pid)}§${esc(c.id)}§${c.shared ? "" : "1"}" title="shared threads go to the hosted site, read-only, once that export exists">${c.shared ? "✓ shared" : "share"}</button>` : "";
-  const foot = c.k === "ok" || c.live ? "" : `<div class="by">${esc(c.by || "")}${CLAUDE && owner() ? `<button data-reply="${esc(c.pid)}§${esc(c.id)}">↳ follow up here</button>` : ""}${share}</div>`;
+  const foot = c.k === "ok" || c.live ? "" : `<div class="by">${esc(c.by || "")}${asks() ? `<button data-reply="${esc(c.pid)}§${esc(c.id)}">↳ follow up here</button>` : ""}</div>`;
   return `<div class="card ${c.k} ${c.live ? "livecard" : ""}" data-card="${esc(c.id)}"><span class="kind ${c.k}">${KIND[c.k]}</span>${c.k === "q" ? `<h5 ${c.orig ? `title="as typed: ${esc(c.orig)}"` : ""}>${esc(c.h)}</h5>` : body}${foot}</div>`;
 }
 function threadHTML(pid) {
@@ -314,11 +318,11 @@ function threadHTML(pid) {
 }
 function askBar() {
   const c = focused();
-  if (!CLAUDE || !owner() || !c) return "";
+  if (!asks() || !c) return "";
   const pid = c.pid, to = S.replyTo === "plot" ? "the plot" : (thread(pid).find(q => q.id === S.replyTo) || {}).h || "the plot";
   return `<div class="askbar"><div class="ctx">Asking about <b>${esc(label(pid, c.v))}</b> · follow-up to <b>${esc(to)}</b>${S.replyTo !== "plot" ? '<button class="btn" data-reply="reset">reset</button>' : ""}</div>
     <textarea id="q" placeholder="Ask Claude about this plot…"></textarea>
-    <div class="askrow"><button class="btn pri" id="send" title="Enter: queued behind any run in progress">Ask ⏎</button><button class="btn" id="sendnow" title="start at once, beside any run in progress">Ask now</button><select id="model" title="model">${[["opus", "Opus"], ["sonnet", "Sonnet"]].map(([v, t]) => `<option value="${v}" ${store.get("model", "opus") === v ? "selected" : ""}>${t}</option>`).join("")}</select><select id="effort" title="effort">${["low", "medium", "high"].map(v => `<option ${store.get("effort", "medium") === v ? "selected" : ""}>${v}</option>`).join("")}</select><span class="hint">full agent · edits need your OK</span></div></div>`;
+    <div class="askrow"><button class="btn pri" id="send" title="Enter: queued behind any run in progress">Ask ⏎</button>${boss() ? `<button class="btn" id="sendnow" title="start at once, beside any run in progress">Ask now</button>` : ""}<select id="model" title="model">${[["opus", "Opus"], ["sonnet", "Sonnet"]].map(([v, t]) => `<option value="${v}" ${model() === v ? "selected" : ""}>${t}</option>`).join("")}</select><select id="effort" title="effort">${["low", "medium", "high"].map(v => `<option ${store.get("effort", "medium") === v ? "selected" : ""}>${v}</option>`).join("")}</select><span class="hint">full agent · edits need your OK</span></div></div>`;
 }
 
 /* ---------- the cards: a grid that fits the room; the wheel zooms the plot under the mouse ---------- */
@@ -364,7 +368,7 @@ const tagsHTML = pid => (P[pid].tags || []).map(t => tagChip(t)).join("");
 const imgOf = pid => { const f = P[pid].files[keyOf(pid, DEF[pid] || best(pid))]; return f && f.img; };
 const thumb = pid => imgOf(pid) ? `<img class="thumb" src="${esc(imgOf(pid))}" alt="" loading="lazy">` : "";
 // the owner's importance mark (10-21): in the Claude room a select on the card head and the panel (11-15); the tree shows it plain
-const impHTML = (pid, edit = false) => edit && CLAUDE && owner() ? `<select class="badge imp" data-impsel="${esc(pid)}" title="importance to its task">${["", "!", "!!", "!!!"].map(m => `<option value="${m}" ${(P[pid].importance || "") === m ? "selected" : ""}>${m || "–"}</option>`).join("")}</select>` :
+const impHTML = (pid, edit = false) => edit && boss() ? `<select class="badge imp" data-impsel="${esc(pid)}" title="importance to its task">${["", "!", "!!", "!!!"].map(m => `<option value="${m}" ${(P[pid].importance || "") === m ? "selected" : ""}>${m || "–"}</option>`).join("")}</select>` :
   P[pid].importance ? `<span class="badge imp" title="importance to its task">${P[pid].importance}</span>` : "";
 function badges(pid) {
   const n = Object.keys(P[pid].files).length, q = thread(pid).length;
@@ -399,7 +403,7 @@ function navPane() {
 /* ---------- render ---------- */
 function seg(name, opts) { return `<span class="seg">` + opts.map(([v, t]) => `<button data-set="${name}|${v}" class="${S[name] === v ? "on" : ""}">${t}</button>`).join("") + `</span>`; }
 function pill() {
-  if (!CLAUDE || !owner()) return "";
+  if (!asks()) return "";
   const c = S.claude, secs = c.t0 ? Math.round((Date.now() - c.t0) / 1000) : 0;
   const txt = { idle: "Claude · idle", thinking: `Thinking · ${secs} s`, writing: `Writing · ${secs} s`, waiting: "Needs your OK", done: `Answered · ${secs} s` }[c.st];
   const q = c.running > 1 || c.queued ? ` · ${c.running || 0} running, ${c.queued || 0} queued` : "";
@@ -468,9 +472,8 @@ document.addEventListener("click", e => {
   unpop();
   if (e.target.closest("select")) return;  // the importance select: a re-render would close it
   if (S.open.fmenu && !e.target.closest(".fmenu")) { S.open.fmenu = false; const m = document.querySelector(".fmenu"); if (m) m.open = false; }  // a click elsewhere folds the filter menu
-  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-share],[data-split],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],#freset,#send,#sendnow,#pill");
+  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-split],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],#freset,#send,#sendnow,#pill");
   if (!t) { const n = e.target.closest(".pc[data-node]"); if (n && S.focus !== n.dataset.node) { S.focus = n.dataset.node; S.replyTo = "plot"; render(); } return; }
-  if (t.dataset.share && window.agent) { const [pid, id, on] = t.dataset.share.split("§"); window.agent.share(pid, id, !!on); return; }
   if (t.dataset.set) { const [k, v] = t.dataset.set.split("|"); S[k] = v; if (PERSIST.includes(k)) store.set(k, v); render(); }
   else if (t.dataset.axis) { const [id, a, v] = t.dataset.axis.split("|"); setAxis(cardOf(id), a, v); }
   else if (t.dataset.sel) only(t.dataset.sel);
@@ -524,6 +527,17 @@ document.addEventListener("pointerdown", e => {  // a grip beside a side panel s
 });
 
 /* ---------- the Claude fold: only when api/hello answered (room/agent.py behind dashboard.py --claude) ---------- */
+// the room under --claude, or on a hosted copy the shared site's function forwarding to it (design 11-15, shared Q&A).
+// Pages answers an unknown path with its root page, so only a JSON {ok} counts; {offline} means the room is down.
+async function hello() {
+  try {
+    const r = await fetch("api/hello", { signal: AbortSignal.timeout(5000) });
+    const d = (r.headers.get("Content-Type") || "").includes("json") ? await r.json() : {};
+    CLAUDE = !!d.ok; ROLE = CLAUDE ? d.role || "owner" : ""; OFFLINE = !!d.offline;
+  } catch (e) { CLAUDE = false; }
+}
+// the ask bar's model: what this browser picked, else Opus for the owner and Sonnet for a coauthor (the owner, 11-15)
+const model = () => store.get("model", ROLE === "reader" ? "sonnet" : "opus");
 const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json());
 function upsert(pid, c) { c.pid = pid; const cs = T[pid] = T[pid] || []; const i = cs.findIndex(x => x.id === c.id); if (i >= 0) cs[i] = c; else cs.push(c); }
 function patch(c) {  // a card already on screen changes in place; a new card needs a full render
@@ -549,7 +563,7 @@ window.agentStart = async () => {
 window.agent = {
   ask(c, parent, text, now) {
     const pid = c.pid, f = fileOf(c);
-    post("api/ask", { plot: pid, parent, text, now, model: store.get("model", "opus"), effort: store.get("effort", "medium"), ctx: { title: P[pid].title, variant: label(pid, c.v), path: f.path, script: P[pid].script,
+    post("api/ask", { plot: pid, parent, text, now, model: model(), effort: store.get("effort", "medium"), ctx: { title: P[pid].title, variant: label(pid, c.v), path: f.path, script: P[pid].script,
       caption: f.caption_txt ? f.path.replace(/\.[^.]+$/, ".txt") : "" } });
     document.getElementById("q").value = ""; S.replyTo = "plot";
   },
@@ -558,7 +572,6 @@ window.agent = {
     const choice = msg ? { do: v, msg: msg.value, paths: [...el.querySelectorAll("input[type=checkbox]:checked")].map(x => x.value) } : v;
     post("api/approve", { id, choice });
   },
-  share(pid, id, on) { post("api/share", { plot: pid, id, on }); },
   issue(pid, id) { post("api/issue", { plot: pid, id, link: location.origin + location.pathname + "?open=" + encodeURIComponent(pid) }); },
 };
 
@@ -568,12 +581,13 @@ window.agent = {
   P = I.plots;
   I.findings.forEach(f => f.plots.forEach(([pid, k]) => { if (P[pid] && P[pid].files[k] && !DEF[pid]) DEF[pid] = parse(pid, k); INF.add(pid); }));
   // the room opens empty, nothing ticked, only the newest sitting unfolded (10-21)
-  // the hosted copy (dashboard.py hosted()): the collaborator's view, everything but Claude (10-20); Pages answers any
-  // unknown path, api/hello included, with its root page, so the probe would say yes; it has no scripts, so by read date
+  // the hosted copy (dashboard.py hosted()): the collaborator's view, by read date (it has no scripts); its Claude, when
+  // the site forwards to the room, is probed after the first render, so a stuck server never holds the dashboard
   if (I.hosted) Object.assign(S, { viewer: "collab", group: "read" });
-  else try { CLAUDE = (await fetch("api/hello")).ok; } catch (e) { CLAUDE = false; }
+  else await hello();
   // ?open=<plot id>&open=<plot id> opens those cards, for a link that shows a plot (the demo site's); without it the room opens empty
   S.cards = new URLSearchParams(location.search).getAll("open").filter(pid => P[pid]).map(pid => newCard(pid));
   render();
+  if (I.hosted) await hello().then(() => { if (CLAUDE || OFFLINE) render(); });
   if (CLAUDE && window.agentStart) window.agentStart();
 })();

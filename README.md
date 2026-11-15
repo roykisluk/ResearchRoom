@@ -75,6 +75,14 @@ project, so it needs the GitHub CLI, logged in.
 On a server, `tools/room-tunnel.sh` keeps one Cloudflare tunnel up for every room, and `tools/room-server.sh` keeps one
 project's room up behind it, restarting it when its clone or the engine moves; their first lines give the cron lines.
 
+The published copy can carry the Claude Q&A too, for everyone its Access app lets in. Set `[hosted] qa` to the room's
+address: the publish then adds a Pages function that forwards the Q&A to the room, with a Cloudflare Access service
+token (the Pages secrets `QA_CLIENT_ID` and `QA_CLIENT_SECRET`) and the reader's own Access login, which the room
+checks (the room's env: `QA_SERVICE_ID`, the token's client id, and `PAGES_AUD`, the site's Access tag). The owner
+(`[hosted] emails`) keeps the full panel. Everyone else gets a read-only Claude: it reads only a folder holding what
+the site shows plus the tracked code, has no other tool and no approvals, and defaults to Sonnet. When the room is
+down, the site works and the panel says so.
+
 ## Updating
 `git pull` in your clone. `CHANGELOG.md` has one line for each change that asks you to do something.
 

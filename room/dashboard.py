@@ -1880,11 +1880,16 @@ def access_guard(hosts, team="", probe=curl_probe):
 def site_files(hosted):
     """{path: text} of the two files a deploy needs beside dist/, both written from [hosted]: wrangler.toml (the Pages
     project) and functions/_middleware.js (the hosts it serves), so the two places that must agree cannot disagree
-    (docs/lessons.md, 10-13). No KV binding and no other function: api/comments is not deployed (11-13)."""
+    (docs/lessons.md, 10-13). No KV binding; api/comments is not deployed (11-13). With [hosted] qa, also the function
+    that forwards the Claude Q&A to the room."""
     with open(os.path.join(os.path.dirname(APP), "_middleware.js"), encoding="utf-8") as fh:
         middleware = fh.read().replace("__HOSTS__", json.dumps(hosted["hosts"]))
-    return {"wrangler.toml": f'name = "{hosted["project"]}"\npages_build_output_dir = "dist"\ncompatibility_date = "2026-10-01"\n',
-            "functions/_middleware.js": middleware}
+    files = {"wrangler.toml": f'name = "{hosted["project"]}"\npages_build_output_dir = "dist"\ncompatibility_date = "2026-10-01"\n',
+             "functions/_middleware.js": middleware}
+    if hosted.get("qa"):  # the shared site's Claude Q&A (design 11-15): forward /api/* to the room named by [hosted] qa
+        with open(os.path.join(os.path.dirname(APP), "qa.js"), encoding="utf-8") as fh:
+            files["functions/api/[[path]].js"] = fh.read().replace("__QA__", json.dumps(str(hosted["qa"]).rstrip("/")))
+    return files
 
 
 def publish():
@@ -2132,6 +2137,10 @@ def selftest():
     assert deploy_host("Take a peek over at https://116792eb.my-site-t8p.pages.dev\n") == "116792eb.my-site-t8p.pages.dev" and deploy_host("no address") == ""
     SF = site_files({"project": "p", "hosts": ["a.example.org", "p.pages.dev"]})  # the publish folder, from [hosted] alone
     assert 'new Set(["a.example.org", "p.pages.dev"])' in SF["functions/_middleware.js"] and "__HOSTS__" not in SF["functions/_middleware.js"]
+    # the shared site's Q&A (design 11-15): a function forwards /api/* to the room only when [hosted] qa names it
+    assert "functions/api/[[path]].js" not in SF
+    QF = site_files({"project": "p", "hosts": ["a.example.org"], "qa": "https://q.example.org"})["functions/api/[[path]].js"]
+    assert 'const QA = "https://q.example.org";' in QF and "__QA__" not in QF and "X-Room-Jwt" in QF and "Set-Cookie" not in QF.split("*/")[-1], QF[:300]
     assert SF["wrangler.toml"].splitlines()[0] == 'name = "p"' and "kv_namespaces" not in SF["wrangler.toml"]
     assert [next((n for n, r in PTYPES if re.search(r, x)), "other") for x in
             ("each point is a bin of 10 firms", "forest: point estimates", "employment growth against the payroll share",
