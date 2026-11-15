@@ -10,6 +10,7 @@ mkdir -p eng/tools && cp "$SRC"/tools/room-server.sh "$SRC"/tools/room-tunnel.sh
 cat > u/.local/bin/tmux <<EOF
 #!/bin/sh
 echo "tmux \$*" >> $SB/calls
+[ -n "\${TUNNEL_TOKEN:-}" ] && echo "tmux-env-has-token" >> $SB/calls  # tmux hands a new server its client's environment
 case "\$1" in has-session) [ -f $SB/session ] ;; kill-session) rm -f $SB/session ;; new) touch $SB/session ;; esac
 EOF
 printf '#!/bin/sh\nexit 0\n' > u/.local/bin/uv; cp u/.local/bin/uv u/.local/bin/cloudflared; chmod +x u/.local/bin/*
@@ -29,7 +30,20 @@ advance; echo dirty >> cl/f; : > calls; run eng/tools/room-server.sh "$SB/cl" r1
 ok '! grep -q "kill-session" calls' "server: a tracked file edited -> no restart"
 rm -f session; : > calls; run eng/tools/room-tunnel.sh "$SB/env" > out5
 ok "grep -q \"new -d -s room-tunnel .*cloudflared' tunnel --no-autoupdate run\" calls" "tunnel: starts, cloudflared by full path"
+ok '! grep -q tmux-env-has-token calls' "tunnel: tmux is not started with the token in its environment (every window would inherit it)"
 : > calls; run eng/tools/room-tunnel.sh "$SB/env" > out6; ok '! grep -q "new " calls' "tunnel: running -> nothing"
 rm -f session; printf 'ACCESS_AUD=\n' > env2; : > calls; run eng/tools/room-server.sh "$SB/cl" r2 "$SB/env2" h 8791 > out7
 ok '! grep -q "new " calls' "server: no ACCESS_AUD -> does not start"
+# a room commit not yet pushed is not a move: no restart every 5 minutes
+git -C cl checkout -q -- f; touch session; run eng/tools/room-server.sh "$SB/cl" r1 "$SB/env" h.example 8790 > out8
+(cd cl && echo y > g && G add -A && G commit -qm local)
+: > calls; run eng/tools/room-server.sh "$SB/cl" r1 "$SB/env" h.example 8790 > out9
+ok '! grep -q "kill-session" calls' "server: the room's clone ahead of origin -> no restart loop"
+# no env file: the running room is left up, and the log says why nothing started
+advance; : > calls; run eng/tools/room-server.sh "$SB/cl" r1 "$SB/nope" h.example 8790 > out10
+ok '! grep -q "kill-session" calls && grep -q "not set up" out10' "server: env file missing -> room left running, a log line"
+# an engine pull that fails is not stamped as up to date, so the next run tries again
+echo local >> eng/tools/x; : > calls; run eng/tools/room-server.sh "$SB/cl" r1 "$SB/env" h.example 8790 > out11
+ok '[ "$(cat u/.cache/r1-engine)" != "$(git -C eng rev-parse @{u})" ] && grep -q "did not pull" out11' "server: a failed engine pull is not stamped as current"
+git -C eng checkout -q -- tools/x
 exit $fails

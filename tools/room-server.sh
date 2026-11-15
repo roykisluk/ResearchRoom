@@ -12,11 +12,15 @@ clone=$1 name=$2 env=$3 host=$4 port=$5
 engine=$(cd "$(dirname "$0")/.." && pwd)
 stamp=$HOME/.cache/$name-engine log=$HOME/.cache/$name.log
 cd "$clone"
+# only ACCESS_AUD reaches the room: the file may also hold the tunnel's token, which the room's Claude must not inherit
+aud=""; [ -f "$env" ] && aud=$(sed -n 's/^ACCESS_AUD=//p' "$env" | head -1 | tr -d "\"'")
 if tmux has-session -t "=$name" 2>/dev/null; then
+  [ -n "$aud" ] || { echo "$(date -Is) $env gives no ACCESS_AUD (not set up?): the running room is left as it is"; exit 0; }
   git fetch -q origin 2>/dev/null || exit 0
   git -C "$engine" fetch -q origin 2>/dev/null || true
   up=$(git -C "$engine" rev-parse '@{u}' 2>/dev/null || true)
-  [ "$(git rev-parse HEAD)" != "$(git rev-parse '@{u}')" ] || [ "$up" != "$(cat "$stamp" 2>/dev/null)" ] || exit 0
+  # the clone moved when origin has a commit it lacks; a room commit not yet pushed is not a move (no restart every 5 minutes)
+  ! git merge-base --is-ancestor '@{u}' HEAD || [ "$up" != "$(cat "$stamp" 2>/dev/null)" ] || exit 0
   [ -z "$(git status --porcelain --untracked-files=no)" ] || exit 0
   for p in $(pgrep -f stream-json || true); do
     [ "$(readlink "/proc/$p/cwd" || true)" = "$PWD" ] || continue
@@ -26,17 +30,16 @@ if tmux has-session -t "=$name" 2>/dev/null; then
   echo "$(date -Is) main is at $(git rev-parse --short '@{u}'), the engine at ${up:0:7}; one moved and the room is idle: restarting it"
   tmux kill-session -t "=$name"
 fi
-[ -f "$env" ] || exit 0  # not set up yet
-# only ACCESS_AUD reaches the room: the file may also hold the tunnel's token, which the room's Claude must not inherit
-aud=$(sed -n 's/^ACCESS_AUD=//p' "$env" | head -1 | tr -d "\"'")
-[ -n "$aud" ] || exit 0  # dashboard.py --public refuses to start without it
+[ -n "$aud" ] || exit 0  # not set up yet: dashboard.py --public refuses to start without it
 git pull --ff-only -q || echo "$(date -Is) the clone did not pull; starting on $(git rev-parse --short HEAD)"
 # this script lives in the engine: bash goes on reading the old text of a file the pull replaced, so run the new one
 self=$(git -C "$engine" rev-parse HEAD:tools/room-server.sh)
 git -C "$engine" pull --ff-only -q || echo "$(date -Is) the engine did not pull; starting on $(git -C "$engine" rev-parse --short HEAD)"
 [ "$self" = "$(git -C "$engine" rev-parse HEAD:tools/room-server.sh)" ] || exec "$engine/tools/room-server.sh" "$@"
-# the stamp is the engine's upstream commit, which the check above compares; a clone ahead of origin would never match
-{ git -C "$engine" rev-parse '@{u}' 2>/dev/null || git -C "$engine" rev-parse HEAD; } > "$stamp"
+# the stamp is what the check above compares: the engine's upstream commit once HEAD holds it (a clone ahead of origin
+# would otherwise never match), else HEAD, so a pull that failed (two rooms pulling at once, an edited file) is tried
+# again on the next run. ponytail: a pull that keeps failing restarts an idle room every 5 minutes, logged each time
+if git -C "$engine" merge-base --is-ancestor '@{u}' HEAD 2>/dev/null; then git -C "$engine" rev-parse '@{u}'; else git -C "$engine" rev-parse HEAD; fi > "$stamp"
 echo "$(date -Is) starting room $name on $(git rev-parse --short HEAD), engine $(git -C "$engine" rev-parse --short HEAD)"
 uv=$(command -v uv) || { echo "$(date -Is) uv is not on PATH"; exit 1; }
 # tmux starts a window from its server's environment: the window gets ACCESS_AUD and uv's full path from here.

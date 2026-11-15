@@ -760,9 +760,11 @@ def index_now(bundled=True):
         for f in p["files"].values():  # an equation kept as text: the room shows the plain page and draws it beside
             if (s := spec_of(f["path"])):
                 f.update(eq=s, img=img_url(f["path"], plain=True))
-            lay = f["path"].rsplit(".", 1)[0] + LAYERS
-            if os.path.isfile(os.path.join(ROOT, lay)):  # its time in the URL, as img_url does: Cloudflare keeps a URL 4 hours
-                f["layers"] = f"f/{quote(lay)}?v={int(os.path.getmtime(os.path.join(ROOT, lay)))}"
+            lay = os.path.join(ROOT, f["path"].rsplit(".", 1)[0] + LAYERS)
+            # only one drawn with its page or after it (an older one shows an older drawing); its time in the URL, as
+            # img_url does: Cloudflare keeps a URL 4 hours
+            if os.path.isfile(lay) and os.path.getmtime(lay) >= os.path.getmtime(os.path.join(ROOT, f["path"])) - 1:
+                f["layers"] = f"f/{quote(os.path.relpath(lay, ROOT))}?v={int(os.path.getmtime(lay))}"
     ix["tasks"] = tasks()
     ix["story"] = [dict(r, from_ok=r["from"] in ix["plots"], to_ok=r["to"] in ix["plots"]) for r in story_rows()]
     return ix
@@ -2439,6 +2441,9 @@ def selftest():
                 fh.write(png)
         with open(os.path.join(d, "figures", "10_a_v1" + LAYERS), "w") as fh:  # figure_rules.save's series layers (11-15)
             fh.write('<svg data-series="[&quot;a&quot;, &quot;b&quot;]"></svg>')
+        with open(os.path.join(d, "figures", "101_b_v2" + LAYERS), "w") as fh:  # older than its page: a stale drawing, unused
+            fh.write('<svg></svg>')
+        os.utime(os.path.join(d, "figures", "101_b_v2" + LAYERS), (1, 1))
         r = run("--project", d, "--export", out); assert r.returncode == 0, r.stderr
         with open(os.path.join(out, "index.json")) as fh:
             ix = json.load(fh)

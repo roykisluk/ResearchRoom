@@ -9,8 +9,9 @@ export PATH=$HOME/.local/bin:$PATH
 env=$1
 tmux has-session -t "=room-tunnel" 2>/dev/null && exit 0
 [ -f "$env" ] || exit 0  # not set up yet
-set -a; . "$env"; set +a
-[ -n "${TUNNEL_TOKEN:-}" ] || exit 0
+# checked, not loaded: a tmux server started from here would hand this script's environment, the token with it, to every
+# later window, each room's Claude among them
+grep -q '^TUNNEL_TOKEN=.' "$env" || exit 0
 bin=$(command -v cloudflared) || { echo "$(date -Is) cloudflared is not on PATH"; exit 1; }
 echo "$(date -Is) starting the tunnel"
 # tmux starts a window from its server's environment, not this script's: the window reads the file itself and names

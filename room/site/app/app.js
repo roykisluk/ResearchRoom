@@ -122,7 +122,7 @@ function setAxis(c, a, val) {
 function switcher(c) {
   const p = P[c.pid], f = fileOf(c), L = f.layers && SVGS[f.layers] && SVGS[f.layers].labels || [];
   const ser = L.length > 1 ? `<div class="axis"><span class="ax">Series</span>${L.map((l, i) =>
-    `<button class="chip ${(c.off || []).includes(i) ? "" : "on"}" data-ser="${c.id}|${i}" title="show or hide this series">${esc(l)}</button>`).join("")}</div>` : "";
+    `<button class="chip ${(c.off || []).includes(l) ? "" : "on"}" data-ser="${c.id}|${i}" title="show or hide this series">${esc(l)}</button>`).join("")}</div>` : "";
   if (!p.axes.length) return ser;
   const help = a => (p.help || {})[a] || "Not described yet.";
   return p.axes.map(([a, vals]) => `<div class="axis"><span class="ax">${esc(a)} <span class="info" tabindex="0" role="note" aria-label="${esc(help(a))}" data-help="${esc(help(a))}">ⓘ</span></span>` + vals.map(val => {
@@ -211,18 +211,24 @@ const SVGS = {}, SVGN = {};
 function fillSvgs() {
   document.querySelectorAll(".svgv[data-svg]").forEach(el => {
     const u = el.dataset.svg, pv = el.closest(".pv"), c = pv && cardOf(pv.dataset.pv);
-    if (!SVGS[u]) SVGS[u] = fetch(u).then(r => r.text()).then(t => { const doc = new DOMParser().parseFromString(t, "image/svg+xml");
+    if (!SVGS[u]) SVGS[u] = fetch(u).then(r => r.ok ? r.text() : Promise.reject(r.status)).then(t => {
+      const doc = new DOMParser().parseFromString(t, "image/svg+xml");  // an error page parses to <parsererror>, not <svg>
+      if (doc.documentElement.nodeName !== "svg" || doc.querySelector("parsererror")) throw new Error("not an SVG");
       let labels = []; try { labels = JSON.parse(doc.documentElement.dataset.series || "[]"); } catch (e) {}
-      SVGS[u] = { doc, labels }; render(); }, () => { SVGS[u] = { failed: true }; render(); });
+      SVGS[u] = { doc, labels }; }).catch(() => { SVGS[u] = { failed: true }; }).then(render);
     if (SVGS[u].failed) { el.outerHTML = `<img src="${esc(el.dataset.img)}" alt="" draggable="false">`; return; }  // the image, as before
     if (!SVGS[u].doc || !c) return;
     const k = c.id + " " + u, n = SVGN[k] || (SVGN[k] = document.importNode(SVGS[u].doc.documentElement, true));
     el.replaceChildren(n); el.removeAttribute("data-svg"); seriesOff(n, c.off || []);
   });
 }
-// a series switched off: its marks hidden, its legend entry dimmed (figure_rules.write_layers: ser-<i>-<j>, ser-<i>-leg, ser-<i>-legh)
-const seriesOff = (svg, off) => svg.querySelectorAll('[id^="ser-"]').forEach(g => { const [, i, j] = g.id.split("-"), hide = off.includes(+i);
-  if (j.startsWith("leg")) g.style.opacity = hide ? ".25" : ""; else g.style.display = hide ? "none" : ""; });
+// a series switched off: its marks hidden, its legend entry dimmed (figure_rules.write_layers: ser-<i>-<j>, ser-<i>-leg,
+// ser-<i>-legh); `off` holds labels, not positions, so another file of the plot hides the same series
+function seriesOff(svg, off) {
+  let L = []; try { L = JSON.parse(svg.dataset.series || "[]"); } catch (e) {}
+  svg.querySelectorAll('[id^="ser-"]').forEach(g => { const [, i, j] = g.id.split("-"), hide = off.includes(L[+i]);
+    if (j.startsWith("leg")) g.style.opacity = hide ? ".25" : ""; else g.style.display = hide ? "none" : ""; });
+}
 
 /* ---------- the right panel: the card in focus, in folds ---------- */
 // a fold's open state is kept per browser, the same for every plot; only Switches starts open (11-12)
@@ -475,8 +481,8 @@ document.addEventListener("click", e => {
     else { const [pid, id] = t.dataset.reply.split("§"); S.focus = S.cards.find(c => c.pid === pid).id; S.replyTo = id; }
     render(); const q = document.getElementById("q"); if (q) q.focus(); }
   else if (t.dataset.tag) { S.tag = S.tag === t.dataset.tag ? "" : t.dataset.tag; render(); }
-  else if (t.dataset.ser) { const [id, i] = t.dataset.ser.split("|"), c = cardOf(id), off = c.off || [];
-    c.off = off.includes(+i) ? off.filter(x => x !== +i) : [...off, +i]; render(); }
+  else if (t.dataset.ser) { const [id, i] = t.dataset.ser.split("|"), c = cardOf(id), off = c.off || [], l = SVGS[fileOf(c).layers].labels[+i];
+    c.off = off.includes(l) ? off.filter(x => x !== l) : [...off, l]; render(); }
   else if (t.dataset.issue && window.agent) { const [pid, id] = t.dataset.issue.split("§"); t.disabled = true; window.agent.issue(pid, id); }
   else if (t.dataset.archive) { const pid = t.dataset.archive, on = !P[pid].archived;  // every member, so a later page brings the family back
     post("api/archive", { ids: P[pid].members || [pid], on }).then(r => { if (r.ok) { P[pid].archived = on; render(); } }); }
