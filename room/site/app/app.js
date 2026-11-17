@@ -29,8 +29,10 @@ let NEXT = 0;
 
 /* ---------- index helpers ---------- */
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-// card text: escaped, then **bold** and `code` only, as dashboard.py's prose() does for findings
-const md = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+// card text: escaped, then **bold**, `code` and [text](?open=<plot id>) only (the last a link that opens that plot or
+// table as a card beside the others; only ?open= targets, so no other address can be written into a page; 11-17)
+const md = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+  .replace(/\[([^\]]+)\]\(\?open=([\w%.~-]+)\)/g, (_, t, id) => `<a href="?open=${id}" data-goto="${id}">${t}</a>`);
 const owner = () => S.viewer === "owner";
 // who may ask (anyone the room answers: on the shared site, coauthors too; design 11-15, shared Q&A), and the owner's
 // own controls (archive, marks, Ask now, approvals): only for the owner's login, and locally only in the owner's view.
@@ -478,6 +480,9 @@ document.addEventListener("click", e => {
   if (e.target.closest("select")) return;  // the importance select: a re-render would close it
   if (S.open.fmenu && !e.target.closest(".fmenu")) { S.open.fmenu = false; const m = document.querySelector(".fmenu"); if (m) m.open = false; }  // a click elsewhere folds the filter menu
   const sh = e.target.closest("[data-share]");  // copy the plot's link; where the clipboard is refused, open it instead
+  const go = e.target.closest("a[data-goto]");  // a link in card text: open that plot beside the others, or focus its card
+  if (go) { const pid = decodeURIComponent(go.dataset.goto), have = S.cards.find(c => c.pid === pid);
+    if (P[pid]) { e.preventDefault(); if (have) { S.focus = have.id; render(); } else tick(pid, true); } return; }
   if (sh) { e.preventDefault(); navigator.clipboard.writeText(sh.href).then(() => { sh.textContent = "✓ copied"; setTimeout(() => { sh.textContent = "🔗"; }, 1500); }, () => window.open(sh.href, "_blank")); return; }
   const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-split],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],#freset,#send,#sendnow,#pill");
   if (!t) { const n = e.target.closest(".pc[data-node]"); if (n && S.focus !== n.dataset.node) { S.focus = n.dataset.node; S.replyTo = "plot"; render(); } return; }

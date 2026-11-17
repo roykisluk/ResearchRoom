@@ -10,6 +10,7 @@ python3 room/dashboard.py --selftest > /dev/null
 python3 room/agent.py --selftest > /dev/null
 tools/room-scripts-test.sh > /dev/null  # the server launchers, against stub tmux, uv and cloudflared
 if command -v node > /dev/null; then node tools/qa-function-test.mjs > /dev/null; fi  # the shared site's Q&A forwarder
+if command -v node > /dev/null; then node tools/md-link-test.mjs > /dev/null; fi  # card text: only ?open= links render
 python3 room/dashboard.py --project example --export "$t/full" > /dev/null
 mkdir "$t/bare"; cp -r example/figures example/tables "$t/bare/"
 python3 room/dashboard.py --project "$t/bare" --export "$t/out" > /dev/null
