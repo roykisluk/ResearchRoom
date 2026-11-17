@@ -332,7 +332,9 @@ function askBar() {
 function plotCard(c) {
   const p = P[c.pid], f = fileOf(c), sel = S.cards.length > 1 && c.id === focused().id;
   const split = Object.keys(p.files).length > 1 ? `<button class="btn" data-split="${c.id}" title="open this plot again beside this card, to set another option">⇆ split</button>` : "";
-  return `<div class="pc ${sel ? "sel" : ""}" data-node="${c.id}"><div class="pc-head"><span class="kind">${p.kind === "table" ? "TABLE" : "PLOT"}</span><b title="${esc(title(c.pid))}">${esc(title(c.pid))}</b>${impHTML(c.pid, true)}${p.archived ? '<span class="badge">archived</span>' : ""}${live(c.pid) ? '<span class="live"></span>' : ""}${split}<button class="x" data-close="${c.id}" title="close this card">×</button></div>
+  // a link that opens this plot on the shared site (dashboard.py index: site), for a collaborator; a click copies it (11-17)
+  const share = `<a class="btn" data-share href="${esc((I.site || location.origin + location.pathname) + "?open=" + encodeURIComponent(c.pid))}" title="copy a link that opens this plot on the shared site">🔗</a>`;
+  return `<div class="pc ${sel ? "sel" : ""}" data-node="${c.id}"><div class="pc-head"><span class="kind">${p.kind === "table" ? "TABLE" : "PLOT"}</span><b title="${esc(title(c.pid))}">${esc(title(c.pid))}</b>${impHTML(c.pid, true)}${p.archived ? '<span class="badge">archived</span>' : ""}${live(c.pid) ? '<span class="live"></span>' : ""}${split}${share}<button class="x" data-close="${c.id}" title="close this card">×</button></div>
     ${p.axes.length ? `<div class="pc-opt">${esc(label(c.pid, c.v))}</div>` : ""}<div class="pv" data-pv="${c.id}">${view(f)}</div></div>`;
 }
 // a card's zoom {x, y, k}: the image scaled by k from its top left and moved by x, y, kept inside its box
@@ -475,6 +477,8 @@ document.addEventListener("click", e => {
   unpop();
   if (e.target.closest("select")) return;  // the importance select: a re-render would close it
   if (S.open.fmenu && !e.target.closest(".fmenu")) { S.open.fmenu = false; const m = document.querySelector(".fmenu"); if (m) m.open = false; }  // a click elsewhere folds the filter menu
+  const sh = e.target.closest("[data-share]");  // copy the plot's link; where the clipboard is refused, open it instead
+  if (sh) { e.preventDefault(); navigator.clipboard.writeText(sh.href).then(() => { sh.textContent = "✓ copied"; setTimeout(() => { sh.textContent = "🔗"; }, 1500); }, () => window.open(sh.href, "_blank")); return; }
   const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-split],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],#freset,#send,#sendnow,#pill");
   if (!t) { const n = e.target.closest(".pc[data-node]"); if (n && S.focus !== n.dataset.node) { S.focus = n.dataset.node; S.replyTo = "plot"; render(); } return; }
   if (t.dataset.set) { const [k, v] = t.dataset.set.split("|"); S[k] = v; if (PERSIST.includes(k)) store.set(k, v); render(); }

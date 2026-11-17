@@ -767,6 +767,7 @@ def index_now(bundled=True):
                 f["layers"] = f"f/{quote(os.path.relpath(lay, ROOT))}?v={int(os.path.getmtime(lay))}"
     ix["tasks"] = tasks()
     ix["story"] = [dict(r, from_ok=r["from"] in ix["plots"], to_ok=r["to"] in ix["plots"]) for r in story_rows()]
+    ix["site"] = f"https://{HOSTED['hosts'][0]}/" if HOSTED.get("hosts") else ""  # the room's 🔗 links point here
     return ix
 
 
