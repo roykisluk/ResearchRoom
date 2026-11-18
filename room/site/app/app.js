@@ -464,7 +464,7 @@ function chatPane() {
   return `<h4>${pin}Chat · ${esc(sitName(d))}<select id="chatsel" title="this sitting's chats; the id after the last dot resumes one in a terminal: claude --resume <id>">${all.map(id =>
       `<option value="${esc(id)}" ${id === S.chat ? "selected" : ""}>${esc(name(id))}</option>`).join("")}</select><button class="btn" id="chatnew" title="a new chat about this sitting">+ New</button></h4>
     <div class="chatmsgs">${th.length ? th.map(c => cardHTML(c, true)).join("") : `<div class="hint">Ask anything about this sitting's brief, its answers or the plot on screen. Not saved to the Q&A.</div>`}</div>
-    <div class="askbar"><textarea id="cq" placeholder="Ask Claude…"></textarea><div class="askrow"><button class="btn pri" id="csend" title="Enter: queued behind any run in progress">Ask ⏎</button><button class="btn" id="csendnow" title="start at once">Ask now</button>${seg("model", [["opus", "Opus"], ["sonnet", "Sonnet"]])}${seg("effort", [["low", "low"], ["medium", "medium"], ["high", "high"]])}</div></div>`;
+    <div class="askbar"><textarea id="cq" placeholder="Ask Claude…"></textarea><div class="askrow"><button class="btn pri" id="csend" title="Enter: queued behind any run in progress">Ask ⏎</button>${seg("model", [["opus", "Opus"], ["sonnet", "Sonnet"]])}${seg("effort", [["low", "low"], ["medium", "medium"], ["high", "high"]])}</div></div>`;
 }
 
 /* ---------- render ---------- */
@@ -548,7 +548,7 @@ document.addEventListener("click", e => {
   if (go) { const pid = decodeURIComponent(go.dataset.goto), have = S.cards.find(c => c.pid === pid);
     if (P[pid]) { e.preventDefault(); if (have) { S.focus = have.id; render(); } else tick(pid, true); } return; }
   if (sh) { e.preventDefault(); navigator.clipboard.writeText(sh.href).then(() => { sh.textContent = "✓ copied"; setTimeout(() => { sh.textContent = "🔗"; }, 1500); }, () => window.open(sh.href, "_blank")); return; }
-  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-split],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],[data-point],[data-also],#freset,#send,#sendnow,#pill,#csend,#csendnow,#chatnew");
+  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-split],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],[data-point],[data-also],#freset,#send,#sendnow,#pill,#csend,#chatnew");
   if (!t) { const n = e.target.closest(".pc[data-node]"); if (n && S.focus !== n.dataset.node) { S.focus = n.dataset.node; S.replyTo = "plot"; render(); } return; }
   if (t.dataset.set) { const [k, v] = t.dataset.set.split("|"); S[k] = v; if (PERSIST.includes(k)) store.set(k, v); render(); }
   else if (t.dataset.axis) { const [id, a, v] = t.dataset.axis.split("|"); setAxis(cardOf(id), a, v); }
@@ -574,7 +574,7 @@ document.addEventListener("click", e => {
   else if (t.id === "freset") { S.arch = S.old = false; FILTERS.forEach(([k]) => { S[k] = ""; }); store.set("ptype", ""); render(); }
   else if (t.dataset.ok && window.agent) { const [id, v] = t.dataset.ok.split("§"); window.agent.approve(id, v); }
   else if ((t.id === "send" || t.id === "sendnow") && window.agent) { const q = document.getElementById("q"); if (q && q.value.trim()) window.agent.ask(focused(), S.replyTo, q.value.trim(), t.id === "sendnow"); }
-  else if ((t.id === "csend" || t.id === "csendnow") && window.agent) { const q = document.getElementById("cq"); if (q && q.value.trim()) window.agent.chat(q.value.trim(), t.id === "csendnow"); }
+  else if (t.id === "csend" && window.agent) { const q = document.getElementById("cq"); if (q && q.value.trim()) window.agent.chat(q.value.trim()); }
   else if (t.id === "chatnew") { const ids = chatIds(T, S.brief.date); S.chat = `chat:${S.brief.date}:${ids.length ? +ids[ids.length - 1].split(":").pop() + 1 : 1}`; render(); }
   else if (t.id === "pill" && S.claude.plot && P[S.claude.plot]) only(S.claude.plot);
 });
@@ -630,7 +630,7 @@ function upsert(pid, c) { c.pid = pid; const cs = T[pid] = T[pid] || []; const i
 function patch(c) {  // a card already on screen changes in place; a new card needs a full render
   const els = document.querySelectorAll(`[data-card="${CSS.escape(c.id)}"]`);
   if (!els.length) return false;
-  els.forEach(el => { el.outerHTML = cardHTML(c); });
+  els.forEach(el => { el.outerHTML = cardHTML(c, String(c.pid).startsWith("chat:")); });  // a chat card stays bare
   return true;
 }
 function repill() { const p = document.getElementById("pill"); if (p) p.outerHTML = pill(); }
@@ -662,9 +662,9 @@ window.agent = {
       caption: f.caption_txt ? f.path.replace(/\.[^.]+$/, ".txt") : "" } });
     document.getElementById("q").value = ""; S.replyTo = "plot";
   },
-  chat(text, now) {  // the Brief's chat: what is on screen goes with every message
+  chat(text) {  // the Brief's chat: what is on screen goes with every message; it always queues (agent.py)
     const c = focused(), pt = briefPoint(), d = S.brief.date, f = c && fileOf(c);
-    post("api/ask", { plot: S.chat, parent: chatParent(T[S.chat] || []), text, now, model: S.model, effort: S.effort, ctx: { title: sitName(d),
+    post("api/ask", { plot: S.chat, parent: chatParent(T[S.chat] || []), text, model: S.model, effort: S.effort, ctx: { title: sitName(d),
       variant: `point ${pt.n}: ${pt.t}` + (c ? `; plot: ${P[c.pid].title} (${label(c.pid, c.v)}; ${f.path})` : "; no plot open"),
       path: `docs/runs/takeaways_${d}.md`, script: `docs/runs/readout_${d}_*.md` } });
     document.getElementById("cq").value = "";

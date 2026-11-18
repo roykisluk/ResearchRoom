@@ -20,6 +20,12 @@ QA = os.path.join(ROOT, "docs", "qa")
 # the Brief's chats (11-18): the owner's scratch questions, kept out of the Q&A and of git (the folder ignores itself)
 CHATS = os.path.join(ROOT, ".room", "chats")
 is_chat = lambda pid: pid.startswith("chat:")
+
+
+def chat_source(cards, aid):
+    """The answer a chat message resumes: the chat's last finished answer with a session (a failed one has none; the
+    message's own answer, `aid`, is skipped), or None for a fresh start. Chosen when the run starts, not when it is sent."""
+    return next((c for c in reversed(cards) if c["k"] == "a" and c["id"] != aid and c.get("session") and not c.get("live")), None)
 # Obsidian's canvas colours, as the owner's 2017 Q3 canvas uses them: red pitfall, green answer, cyan another way
 COLOR = {"a": "4", "pit": "1", "alt": "5", "act": "6", "ok": "3"}
 # git subcommands, after any global options (-C path, -c k=v, --no-pager): only read-only ones pass without a card,
@@ -263,7 +269,8 @@ class Hub:
         self.paths[pid] = ctx.get("path", "")
         model = model if model in MODELS else ("sonnet" if role == "reader" else "opus")  # a coauthor's default: Sonnet (the owner, 11-15)
         effort = effort if effort in EFFORTS else "medium"
-        now = now and role == "owner"  # a coauthor's question waits its turn: one run at a time on the owner's quota
+        now = now and role == "owner" and not is_chat(pid)  # a coauthor's question waits its turn: one run at a time on the
+        # owner's quota; a chat message too, so a chat never has two runs writing to one session
         i = uuid.uuid4().hex[:8]
         q = dict(id="q" + i, par=parent, k="q", h=text, edge="…", by=f"{who or OWNER} · " + time.strftime("%m-%d %H:%M"), role=role)
         a = dict(id="a" + i, par=q["id"], k="a", h="", b="", live=True, t0=int(time.time() * 1000), steps=[], thinking="", role=role)
@@ -363,7 +370,7 @@ class Hub:
         pid, a, q, ctx = run["pid"], run["a"], run["q"], run["ctx"]
         start = dirty()
         cards = self.cards[pid]
-        src, history = session_for(cards, q["par"], run["role"])
+        src, history = (chat_source(cards, a["id"]), "") if is_chat(pid) else session_for(cards, q["par"], run["role"])
         resume = dict(resume=src["session"]) if src else {}
         asker, reader = run["who"], run["role"] == "reader"
         if resume and src.get("msg") and src["msg"] != self.last_msg(pid, src["session"]):
@@ -647,10 +654,16 @@ def selftest():
     hub.save("chat:2026-11-16:1")
     assert "chat-2026-11-16-1.canvas" not in os.listdir(hub.qa) and os.path.isfile(os.path.join(hub.chats, "chat-2026-11-16-1.json"))
     assert open(os.path.join(hub.chats, ".gitignore")).read().strip() == "*"
+    # a chat resumes its last finished answer that has a session: not a live one, not a failed one (no session)
+    cc = [dict(id="q1", k="q"), dict(id="a1", k="a", session="s1"), dict(id="q2", k="q"), dict(id="a2", k="a"),
+          dict(id="q3", k="q"), dict(id="a3", k="a", session="s3", live=True), dict(id="q4", k="q"), dict(id="a4", k="a", live=True)]
+    assert chat_source(cc, "a4")["id"] == "a1" and chat_source(cc[:2], "a9")["id"] == "a1" and chat_source([], "a1") is None
     again = Hub(fake=True)
     again.chats = hub.chats
     again.load_chats()
     assert again.cards["chat:2026-11-16:1"] == chat, again.cards
+    hub.ask("chat:2026-11-16:1", "a7", "now?", True, {})
+    assert hub.last["pid"] == "chat:2026-11-16:1", hub.last  # a chat message always queues, even "now": one run at a time
     print("agent selftest ok")
 
 
