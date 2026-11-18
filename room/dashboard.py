@@ -1850,6 +1850,8 @@ q.oninput=fo.onchange=filt;
 </script>{PREVIEW}</body></html>"""
 
 
+# the Brief's chat column (11-18) is the owner's: a coauthor's question to a chat thread is refused, not queued
+chat_refused = lambda role, d: role != "owner" and str(d.get("plot", "")).startswith("chat:")
 HUB, TOKEN, PORT = None, "", 8765  # set by --claude: the agent hub (room/agent.py) and the launch token
 WRITE = threading.Lock()  # The owner's clicks rewrite a whole TSV; the server answers requests on threads
 # --public HOST (plan docs/plans/2026-10-20-claude-tunnel.md): the room through a Cloudflare tunnel on a server, where
@@ -2071,6 +2073,8 @@ class Handler(BaseHTTPRequestHandler):  # GET, plus POST for the Claude panel un
         if n > 100_000:
             return self.send(413, b"too large", "text/plain")
         d = json.loads(self.rfile.read(n) or b"{}")
+        if path == "/api/ask" and chat_refused(who[0], d):
+            return self.send(403, b"the chat is the owner's", "text/plain")
         if path == "/api/ask" and d.get("plot") and d.get("text"):
             out = dict(id=HUB.ask(d["plot"], d.get("parent") or "plot", d["text"], bool(d.get("now")) and who[0] == "owner",
                                   d.get("ctx") or {}, d.get("model"), d.get("effort"), who=who[1], role=who[0]))  # a reader's question queues
@@ -2500,6 +2504,7 @@ def selftest():
         g["ROOM_EMAILS"] = emails
     PUBLIC, AUD, TOKEN = "", "", ""
     assert not allowed({"Host": "room.example.com"})
+    assert chat_refused("reader", {"plot": "chat:2026-11-16:1"}) and not chat_refused("owner", {"plot": "chat:2026-11-16:1"}) and not chat_refused("reader", {"plot": "p"})
     # a sitting's takeaways: points numbered in order, files mapped to their plot and option, unknown files listed
     tk = takeaways(I, {"2026-10-20": "# T\n\n## 1. Wages rise.\nexhibit: figures/76_bins_count10_v2.pdf\nalso: figures/gone_v1.pdf\n"
                                      "Slope 0.41.\n\n## 2. Nothing to draw.\nA count only.\n"})["2026-10-20"]

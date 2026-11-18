@@ -17,6 +17,9 @@ import asyncio, dataclasses, json, os, queue, re, shlex, subprocess, sys, tempfi
 from project import CFG, PEOPLE, ROOT  # the project and its .room/config.toml (room/project.py)
 
 QA = os.path.join(ROOT, "docs", "qa")
+# the Brief's chats (11-18): the owner's scratch questions, kept out of the Q&A and of git (the folder ignores itself)
+CHATS = os.path.join(ROOT, ".room", "chats")
+is_chat = lambda pid: pid.startswith("chat:")
 # Obsidian's canvas colours, as the owner's 2017 Q3 canvas uses them: red pitfall, green answer, cyan another way
 COLOR = {"a": "4", "pit": "1", "alt": "5", "act": "6", "ok": "3"}
 # git subcommands, after any global options (-C path, -c k=v, --no-pager): only read-only ones pass without a card,
@@ -188,11 +191,20 @@ class Hub:
                     pid, cs = from_canvas(json.load(fh))
                 if pid:
                     self.cards[pid] = cs
+        self.chats = os.path.join(self.qa, "chats") if fake else CHATS
+        self.load_chats()
         self.subs, self.waits = [], {}  # event queues; card id -> (loop, future)
         # set by dashboard.py under --claude: the plots the shared site shows (None: every plot) and the reader folder
         self.visible, self.reader_dir = None, ""
         self.q, self.running, self.queued, self.status = queue.Queue(), 0, 0, dict(st="idle", plot=None, t0=0)
         threading.Thread(target=self.worker, daemon=True).start()
+
+    def load_chats(self):
+        for f in sorted(os.listdir(self.chats)) if os.path.isdir(self.chats) else []:
+            if f.endswith(".json"):
+                with open(os.path.join(self.chats, f), encoding="utf-8") as fh:
+                    d = json.load(fh)
+                self.cards[d["plot"]] = d["cards"]
 
     # ---- events
     def emit(self, ev):
@@ -208,7 +220,7 @@ class Hub:
         approvals or changed files (the owner's runs show commands and paths)."""
         if role == "owner":
             return c
-        if (self.visible is not None and pid not in self.visible) or c["k"] in ("ok", "act"):
+        if is_chat(pid) or (self.visible is not None and pid not in self.visible) or c["k"] in ("ok", "act"):
             return None
         return {k: v for k, v in c.items() if k not in ("steps", "thinking")}
 
@@ -235,6 +247,13 @@ class Hub:
 
     def save(self, pid):
         cs = [c for c in self.cards.get(pid, []) if not c.get("live") and not (c["k"] == "ok" and not c.get("res"))]
+        if is_chat(pid):
+            os.makedirs(self.chats, exist_ok=True)
+            with open(os.path.join(self.chats, ".gitignore"), "w") as fh:
+                fh.write("*\n")
+            with open(os.path.join(self.chats, slug(pid) + ".json"), "w", encoding="utf-8") as fh:
+                json.dump(dict(plot=pid, cards=cs), fh, ensure_ascii=False, indent=1)
+            return
         with open(os.path.join(self.qa, slug(pid) + ".canvas"), "w", encoding="utf-8") as fh:
             json.dump(to_canvas(pid, self.paths.get(pid, ""), cs), fh, ensure_ascii=False, indent=1)
             fh.write("\n")
@@ -351,6 +370,14 @@ class Hub:
             resume.update(fork_session=True, resume_session_at=src["msg"])  # a branch from an earlier answer
         if resume:
             prompt_text = f"{asker}'s follow-up (now showing: {ctx.get('variant', '')}): {run['text']}"
+        elif is_chat(pid):  # the Brief's chat column: a running conversation about one sitting, not a Q&A card
+            prompt_text = (f"A chat with {asker} about the takeaways of one enclave sitting, beside the control room's Brief.\n"
+                           f"{ctx.get('title', pid)}\nTakeaways: {ctx.get('path', '')}; the full readout: {ctx.get('script', '')} "
+                           "(Read them when the question needs them). The Q&A threads are in docs/qa/.\n"
+                           f"On screen: {ctx.get('variant', '')}\n"
+                           "This is a conversation, not a Q&A card: no Label, Title or Question lines and no ### sections; answer "
+                           "in plain words, as in a terminal chat.\n"
+                           f"\n{asker}: {run['text']}")
         elif pid.startswith("sit:"):  # the room's sitting box: a question about one takeaway, or about all of them
             prompt_text = (f"Question about the takeaways of one enclave sitting, in the control room.\n{ctx.get('title', pid)}\n"
                            f"Takeaways: {ctx.get('path', '')}; the full readout: {ctx.get('script', '')} (Read both).\n"
@@ -612,6 +639,18 @@ def selftest():
                  "hidden": [dict(id="q8", par="plot", k="q", h="Q")]}
     assert hub.view("reader") == {"p": [dict(id="q9", par="plot", k="q", h="Q"), dict(id="a9", par="q9", k="a", h="A", b="b")]}, hub.view("reader")
     assert hub.view("owner") == hub.cards
+    # a chat (the Brief's chat column, 11-18): the owner's alone, saved under .room/chats/ (ignored by git), never docs/qa/
+    chat = [dict(id="q7", par="plot", k="q", h="Why?"), dict(id="a7", par="q7", k="a", h="", b="Because.", session="s7")]
+    hub.cards["chat:2026-11-16:1"] = chat
+    assert hub.seen("chat:2026-11-16:1", chat[0], "reader") is None and hub.seen("chat:2026-11-16:1", chat[0], "owner") == chat[0]
+    assert "chat:2026-11-16:1" not in hub.view("reader")
+    hub.save("chat:2026-11-16:1")
+    assert "chat-2026-11-16-1.canvas" not in os.listdir(hub.qa) and os.path.isfile(os.path.join(hub.chats, "chat-2026-11-16-1.json"))
+    assert open(os.path.join(hub.chats, ".gitignore")).read().strip() == "*"
+    again = Hub(fake=True)
+    again.chats = hub.chats
+    again.load_chats()
+    assert again.cards["chat:2026-11-16:1"] == chat, again.cards
     print("agent selftest ok")
 
 
