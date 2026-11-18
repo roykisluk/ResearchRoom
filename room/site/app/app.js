@@ -281,14 +281,14 @@ function aboutSec(pid, f) {
 const varsHTML = f => (f.vars || []).length ? `<dl class="vars">${f.vars.map(([n, d]) => `<dt><code>${esc(n)}</code></dt><dd>${md(d)}</dd>`).join("")}</dl>` : "";
 function sideHTML() {
   const pin = `<button class="pin" data-min="sidemin" title="${S.sidemin ? "keep this panel open" : "fold this panel to the edge; it opens while the mouse is on it"}">${S.sidemin ? "«" : "»"}</button>`;
-  const c = focused();
-  if (!c) return `<div class="side-top">${pin}<span>Details</span></div><div class="empty">Open a plot to see its details here.</div>`;
+  const c = focused(), tid = briefTid(S.brief, ROLE, c && c.pid);  // in the Brief, the owner's thread is the point's
+  const qa = asks() && tid ? sec("claude", `Claude${thread(tid).length ? ` · ${thread(tid).length}` : ""}`, threadHTML(tid) + (thread(tid).some(q => q.id === S.replyTo) ? "" : askBar())) :
+    OFFLINE ? sec("claude", "Claude", `<div class="hint">Claude is offline: its server is down. The dashboard works as usual.</div>`) : "";
+  if (!c) return `<div class="side-top">${pin}<span>Details</span></div>` + (S.brief && tid ? qa : `<div class="empty">Open a plot to see its details here.</div>`);
   const p = P[c.pid], f = fileOf(c);
   const flags = f.flags.map(x => `<span class="flag">${esc(x)}</span>`).join(" ");
   const arch = boss() ? `<button class="btn" data-archive="${esc(c.pid)}" title="${p.archived ? "show it in the tree again" : "hide it from the tree, for collaborators too; the filter's Show archived brings it back"}">${p.archived ? "Restore" : "Archive"}</button>` : "";
   const cap = f.caption_txt ? `<div class="tv cap" data-src="${esc(f.path.replace(/\.[^.]+$/, ".txt"))}">Loading…</div>` : "";
-  const qa = asks() ? sec("claude", `Claude${thread(c.pid).length ? ` · ${thread(c.pid).length}` : ""}`, threadHTML(c.pid) + (thread(c.pid).some(q => q.id === S.replyTo) ? "" : askBar())) :
-    OFFLINE ? sec("claude", "Claude", `<div class="hint">Claude is offline: its server is down. The dashboard works as usual.</div>`) : "";
   return `<div class="side-top">${pin}<span>Details</span></div><div class="side-head"><b>${esc(title(c.pid))}</b>${impHTML(c.pid, true)}${p.archived ? ' <span class="badge">archived</span>' : ""}
     <div class="pn-meta">${owner() ? `<span class="mono">${esc(f.path.split("/").pop())}</span><br>` : ""}updated ${esc(p.updated)} ${flags}</div>
     <div class="pn-act"><a class="btn" href="f/${esc(f.path)}" target="_blank">Open file</a>${arch}</div></div>` +
@@ -331,10 +331,10 @@ function threadHTML(pid) {
   return walk("plot", 0);
 }
 function askBar() {
-  const c = focused();
-  if (!asks() || !c) return "";
-  const pid = c.pid, to = (thread(pid).find(q => q.id === S.replyTo) || {}).h;
-  return `<div class="askbar"><div class="ctx">${to ? `<span>Follow-up to <b>${esc(to)}</b></span><button class="btn" data-reply="reset">cancel</button>` : `<span>Asking about <b>${esc(P[pid].title)}</b></span>`}</div>
+  const c = focused(), pid = briefTid(S.brief, ROLE, c && c.pid);
+  if (!asks() || !pid) return "";
+  const to = (thread(pid).find(q => q.id === S.replyTo) || {}).h, about = pid.startsWith("sit:") ? `${briefPoint().n}. ${briefPoint().t}` : P[pid].title;
+  return `<div class="askbar"><div class="ctx">${to ? `<span>Follow-up to <b>${esc(to)}</b></span><button class="btn" data-reply="reset">cancel</button>` : `<span>Asking about <b>${esc(about)}</b></span>`}</div>
     <textarea id="q" placeholder="${to ? "Your follow-up…" : "Ask Claude about this plot…"}"></textarea>
     <div class="askrow"><button class="btn pri" id="send" title="Enter: queued behind any run in progress">Ask ⏎</button>${boss() ? `<button class="btn" id="sendnow" title="start at once, beside any run in progress">Ask now</button>` : ""}${seg("model", [["opus", "Opus"], ["sonnet", "Sonnet"]])}${seg("effort", [["low", "low"], ["medium", "medium"], ["high", "high"]])}<span class="hint">${boss() ? "full agent · edits need your OK" : "reads only: the site's files and the analysis code"}</span></div></div>`;
 }
@@ -535,7 +535,7 @@ document.addEventListener("click", e => {
   else if (t.dataset.close) { S.cards = S.cards.filter(c => c.id !== t.dataset.close); if (!cardOf(S.focus)) S.focus = S.cards.length ? S.cards[0].id : null; render(); }
   else if (t.dataset.min) { const k = t.dataset.min; S[k] = !S[k]; store.set(k, S[k] ? "1" : "0"); render(); }
   else if (t.dataset.reply) { if (t.dataset.reply === "reset") S.replyTo = "plot";
-    else { const [pid, id] = t.dataset.reply.split("§"); S.focus = S.cards.find(c => c.pid === pid).id; S.replyTo = id; S.open["qa:" + id] = true; }
+    else { const [pid, id] = t.dataset.reply.split("§"), have = S.cards.find(c => c.pid === pid); if (have) S.focus = have.id; S.replyTo = id; S.open["qa:" + id] = true; }
     e.preventDefault();  // a button inside a question's summary must not fold it
     render(); const q = document.getElementById("q"); if (q) q.focus(); }
   else if (t.dataset.point) setPoint(+t.dataset.point);
@@ -622,7 +622,14 @@ window.agentStart = async () => {
 };
 window.agent = {
   ask(c, parent, text, now) {
-    const pid = c.pid, f = fileOf(c);
+    const tid = briefTid(S.brief, ROLE, c && c.pid), f = c && fileOf(c);
+    if (tid && tid.startsWith("sit:")) {  // the Brief: the sitting prompt (agent.py), about this point and what is on screen
+      const pt = briefPoint(), d = S.brief.date;
+      post("api/ask", { plot: tid, parent, text, now, model: S.model, effort: S.effort, ctx: { title: `${sitName(d)} · ${pt.n}. ${pt.t}`,
+        variant: `point ${pt.n}: ${pt.t}` + (c ? `; on screen: ${P[c.pid].title} (${f.path})` : ""), path: `docs/runs/takeaways_${d}.md`, script: `docs/runs/readout_${d}_*.md` } });
+      document.getElementById("q").value = ""; S.replyTo = "plot"; return;
+    }
+    const pid = c.pid;
     post("api/ask", { plot: pid, parent, text, now, model: S.model, effort: S.effort, ctx: { title: P[pid].title, variant: label(pid, c.v), path: f.path, script: P[pid].script,
       caption: f.caption_txt ? f.path.replace(/\.[^.]+$/, ".txt") : "" } });
     document.getElementById("q").value = ""; S.replyTo = "plot";
