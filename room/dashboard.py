@@ -747,7 +747,7 @@ def index_now(bundled=True):
             p["about"] = dict(about_of(p, rows[pid]), key=pid)
     if bundled:
         bundle(ix, names(), options(), lambda path: set(WORD.findall(page_text(path).lower())))
-    ix["takeaways"] = takeaways(ix)
+    ix["takeaways"], ix["still_open"] = takeaways(ix), still_open()
     gone, said, marked, helps = archived(), whatis_rows(), marks(), switch_help()
     for pid, p in ix["plots"].items():
         p["help"] = {a: h for a, _ in p["axes"] if (h := helps.get((p["nn"], a)) or helps.get(("*", a)))}
@@ -774,20 +774,49 @@ def index_now(bundled=True):
 # A sitting's main takeaways (10-20): docs/runs/takeaways_<read date>.md, written at read-back in findings.md's
 # format, one "## N. <plain sentence>" per point, its exhibit and also lines naming the files that support it. The
 # room's "by read date" tree opens them as a box on the canvas, for collaborators too; asking Claude about a point is
-# The owner's alone (everything but Claude; 10-20).
+# The owner's alone (everything but Claude; 10-20). The Brief mode (/room?brief=<read date>, 11-18) walks them ask by
+# ask: "ask: <who and when> | <link>" names who asked a point ("ask: none" for one nobody asked), and a "## Still open"
+# section lists, "- <text> | <link>" a line, the asks that sitting did not answer.
 TAKEAWAYS = re.compile(r"^takeaways_(\d{4}-\d\d-\d\d)\.md$")
 
 
-def takeaways(ix, texts=None):
-    """{read date: [{n, t, body, plots: [[pid, combo]], missing}]}; texts ({date: text}) only for the selftest."""
+def takeaway_texts():
+    runs = os.path.join(ROOT, "docs", "runs")
+    return {m[1]: open(os.path.join(runs, n), encoding="utf-8").read() for n in ls("docs", "runs") if (m := TAKEAWAYS.match(n))}
+
+
+def ask_of(s):
+    """'who | link' -> {t, link}; the link only when it is https (no other address reaches the page)."""
+    t, _, link = s.partition("|")
+    return dict(t=t.strip(), link=link.strip() if link.strip().startswith("https://") else "")
+
+
+def still_open(texts=None):
+    """{read date: [{t, link}]}: the "- text | link" lines of each brief file's "## Still open" section."""
+    texts = takeaway_texts() if texts is None else texts
+    return {d: [ask_of(x[2:]) for x in parse_findings(text)["open"].splitlines() if x.startswith("- ")] for d, text in texts.items()}
+
+
+def takeaways(ix, texts=None, readouts=None):
+    """{read date: [{n, t, body, plots: [[pid, combo]], missing, ask, unchecked}]}; texts ({date: text}) only for the
+    selftest. ask: None for "ask: none", else {t, link}. unchecked: the body's numbers no readout of that date gives
+    (readouts: {date: [text]}, by default every docs/runs/readout_<date>_*.md)."""
     if texts is None:
-        runs = os.path.join(ROOT, "docs", "runs")
-        texts = {m[1]: open(os.path.join(runs, n), encoding="utf-8").read() for n in ls("docs", "runs") if (m := TAKEAWAYS.match(n))}
+        texts = takeaway_texts()
+        if readouts is None:
+            runs = os.path.join(ROOT, "docs", "runs")
+            readouts = {}
+            for n in ls("docs", "runs"):
+                if (m := READOUT.match(n)):
+                    readouts.setdefault(m[1], []).append(open(os.path.join(runs, n), encoding="utf-8").read())
+    readouts = readouts or {}
     by_path = {f["path"]: [pid, c] for pid, p in ix["plots"].items() for c, f in p["files"].items()}
     out = {}
     for d, text in texts.items():
         out[d] = [dict(n=i + 1, t=re.sub(r"^\d+\.\s*", "", x["title"]), body=x["body"],
-                       plots=[by_path[q] for q in paths if q in by_path], missing=[q for q in paths if q not in by_path])
+                       plots=[by_path[q] for q in paths if q in by_path], missing=[q for q in paths if q not in by_path],
+                       ask=None if x.get("ask", "").lower() == "none" else ask_of(x.get("ask", "")),
+                       unchecked=unmatched(x["body"], readouts.get(d, [])))
                   for i, x in enumerate(parse_findings(text)["findings"])
                   for paths in [([x["exhibit"]] if x.get("exhibit") else []) + x["also"]]]
     return out
@@ -1359,16 +1388,16 @@ document.addEventListener('toggle',e=>{const d=e.target,p=d.querySelector&&d.que
 def parse_findings(text):
     """docs/findings.md -> {updated, picture, next, findings: [{title, importance, exhibit, also, tags, evidence, body}]}."""
     m = re.search(r"^updated:\s*(\S+)", text, re.M)
-    out = dict(updated=m[1] if m else "", picture="", next="", findings=[])
+    out = dict(updated=m[1] if m else "", picture="", next="", open="", findings=[])
     for block in re.split(r"^## ", text, flags=re.M)[1:]:
         head, _, rest = block.partition("\n")
         meta, lines = {}, rest.strip().splitlines()
-        while lines and (km := re.match(r"(importance|exhibit|also|evidence|changed|added|type|tags|purpose|does|shows):\s*(.*)", lines[0])):
+        while lines and (km := re.match(r"(importance|exhibit|also|evidence|changed|added|type|tags|purpose|does|shows|ask):\s*(.*)", lines[0])):
             meta[km[1]] = km[2].strip()
             lines.pop(0)
         body, head = "\n".join(lines).strip(), head.strip()
-        if head in ("Picture", "Next"):
-            out[head.lower()] = body
+        if head in ("Picture", "Next", "Still open"):
+            out[head.split()[-1].lower()] = body
         else:
             for k in ("also", "tags"):
                 meta[k] = [x.strip() for x in meta.get(k, "").split(",") if x.strip()]
@@ -1705,7 +1734,8 @@ def export(out):
     told = [r["id"] for r in ix["story"] if INTERNAL.search(" ".join(r[k] for k in ("question", "answer", "from_title", "to_title")))]
     if told:
         print(f"{len(told)} Graph D rows show a file or code name (.room/story.tsv): {', '.join(told)}", file=sys.stderr)
-    tk = sorted(f"{d} point {x['n']}" for d, xs in ix.get("takeaways", {}).items() for x in xs if INTERNAL.search(x["t"] + " " + x["body"]))
+    tk = sorted(f"{d} point {x['n']}" for d, xs in ix.get("takeaways", {}).items() for x in xs if INTERNAL.search(" ".join([x["t"], x["body"], (x.get("ask") or {}).get("t", "")])))
+    tk += sorted(f"{d} still open" for d, xs in ix.get("still_open", {}).items() if INTERNAL.search(" ".join(x["t"] for x in xs)))
     if tk:  # collaborators read them now (10-20)
         print(f"{len(tk)} takeaways show a script, file or version name (docs/runs/takeaways_*.md):\n  " + "\n  ".join(tk), file=sys.stderr)
     raw = sorted(pid for pid in ix["plots"] if full["plots"][pid].get("unnamed"))
@@ -2478,6 +2508,19 @@ def selftest():
                               if f["path"] == "figures/76_bins_count10_v2.pdf"] and tk[0]["missing"] == ["figures/gone_v1.pdf"], tk[0]
     Ht = hosted(dict(I, takeaways={"d": tk}), since=0)["takeaways"]["d"]  # on the hosted copy too, files dropped there pointing at their plot
     assert Ht[0]["plots"] == tk[0]["plots"] and Ht[0]["missing"] == [] and Ht[1]["plots"] == [], Ht
+    # the brief: who asked each point, the numbers no readout of that date gives, and the asks still open
+    bt = ("# T\n\n## 1. Wages rise.\nask: Dana, meeting 10-18 | https://example.org/row\nexhibit: figures/76_bins_count10_v2.pdf\n"
+          "Slope 0.41, not 0.99.\n\n## 2. A side result.\nask: none\nA count only.\n\n## 3. A bad link.\nask: Lee | javascript:alert(1)\nText.\n\n"
+          "## Still open\n- Funding rounds: shipped, not run | https://example.org/r2\n- Book the seminar\n")
+    bk = takeaways(I, {"2026-10-20": bt}, readouts={"2026-10-20": ["the slope is 0.41"]})["2026-10-20"]
+    assert [x["n"] for x in bk] == [1, 2, 3], bk                       # "Still open" is no point
+    assert bk[0]["ask"] == {"t": "Dana, meeting 10-18", "link": "https://example.org/row"} and bk[1]["ask"] is None, bk
+    assert bk[2]["ask"] == {"t": "Lee", "link": ""}, bk[2]             # only an https link reaches the page
+    assert bk[0]["unchecked"] == ["0.99"] and bk[1]["unchecked"] == [], bk
+    assert tk[1]["ask"] == {"t": "", "link": ""}, tk[1]                # a file with no ask lines: asks, not "Also found"
+    assert still_open({"2026-10-20": bt}) == {"2026-10-20": [{"t": "Funding rounds: shipped, not run", "link": "https://example.org/r2"},
+                                                             {"t": "Book the seminar", "link": ""}]}
+    assert hosted(dict(I, takeaways={"d": bk}, still_open={"d": []}), since=0)["still_open"] == {"d": []}
     # the page shown: the equation copy beside a figure, or under figures/eq/<run>/ for an enclave page of that run only
     root, g = ROOT, globals()  # selftest reads ROOT above, so it is swapped through globals()
     with tempfile.TemporaryDirectory() as d:
