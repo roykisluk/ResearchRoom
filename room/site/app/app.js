@@ -30,7 +30,7 @@ let NEXT = 0;
 /* ---------- the Brief mode (/room?brief=<read date>; DECISIONS 11-18): one sitting's takeaways, ask by ask ---------- */
 // each of the three on one line: tools/brief-test.mjs cuts them out by their first words
 const briefOrder = pts => [...pts.filter(x => x.ask !== null), ...pts.filter(x => x.ask === null)];
-const briefOf = (qs, tk) => { const q = new URLSearchParams(qs), d = q.get("brief"), pts = d && tk && Object.hasOwn(tk, d) ? tk[d] : []; if (!pts.length) return null; const n = +q.get("point"); return { date: d, n: n ? Math.min(Math.max(1, n), pts.length) : briefOrder(pts)[0].n }; };
+const briefOf = (qs, tk) => { const q = new URLSearchParams(qs), d = q.get("brief"), pts = d && tk && Object.hasOwn(tk, d) ? tk[d] : []; if (!pts.length) return null; const n = Math.round(+q.get("point")); return { date: d, n: n ? Math.min(Math.max(1, n), pts.length) : briefOrder(pts)[0].n }; };
 // the owner asks in the sitting's thread, one per point; a coauthor in the plot's own thread, which they can see
 const briefTid = (b, role, pid) => b && role === "owner" ? `sit:${b.date}:${b.n}` : pid;
 const briefPoint = () => S.brief && I.takeaways[S.brief.date].find(x => x.n === S.brief.n);

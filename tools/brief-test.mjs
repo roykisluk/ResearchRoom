@@ -11,6 +11,8 @@ eq(briefOrder(tk["2026-10-20"]).map(x => x.n), [1, 3, 2]);
 eq(briefOf("?brief=2026-10-20", tk), { date: "2026-10-20", n: 1 });
 eq(briefOf("?brief=2026-10-20&point=2", tk), { date: "2026-10-20", n: 2 });
 eq(briefOf("?brief=2026-10-20&point=9", tk), { date: "2026-10-20", n: 3 });
+eq(briefOf("?brief=2026-10-20&point=1.5", tk), { date: "2026-10-20", n: 2 });   // a point that is no whole number: the nearest
+eq(briefOf("?brief=2026-10-20&point=x", tk), { date: "2026-10-20", n: 1 });
 eq(briefOf("?brief=2026-01-01", tk), null);     // no brief file for that date
 eq(briefOf("?brief=2026-10-21", tk), null);     // a file with no points
 eq(briefOf("?open=x", tk), null);
