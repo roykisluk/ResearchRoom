@@ -22,10 +22,19 @@ const PERSIST = ["theme", "kind", "order", "ptype", "model", "effort"];
 const S = { order: store.get("order", "name"), navw: +store.get("navw", 300), sidew: +store.get("sidew", 360),
   navmin: store.get("navmin", "0") === "1", sidemin: store.get("sidemin", "0") === "1",
   group: store.get("group2", "read").replace(/^finding$/, "read"), theme: store.get("theme", "light"), kind: store.get("kind", "figure"), ptype: store.get("ptype", "").replace(/^all$/, ""), viewer: "owner", bytask: store.get("bytask", "1") === "1",
-  filter: "", cards: [], focus: null, replyTo: "plot", open: {}, claude: { st: "idle", t0: 0, plot: null } };
+  filter: "", cards: [], focus: null, replyTo: "plot", open: {}, claude: { st: "idle", t0: 0, plot: null }, brief: null };
 { const g = new URLSearchParams(location.search).get("group");  // /room?group=read, the dashboard's "Figures by read date"
   if (["script", "read"].includes(g)) { S.group = g; store.set("group2", g); } }
 let NEXT = 0;
+
+/* ---------- the Brief mode (/room?brief=<read date>; DECISIONS 11-18): one sitting's takeaways, ask by ask ---------- */
+// each of the three on one line: tools/brief-test.mjs cuts them out by their first words
+const briefOrder = pts => [...pts.filter(x => x.ask !== null), ...pts.filter(x => x.ask === null)];
+const briefOf = (qs, tk) => { const q = new URLSearchParams(qs), d = q.get("brief"), pts = d && tk && Object.hasOwn(tk, d) ? tk[d] : []; if (!pts.length) return null; const n = +q.get("point"); return { date: d, n: n ? Math.min(Math.max(1, n), pts.length) : briefOrder(pts)[0].n }; };
+// the owner asks in the sitting's thread, one per point; a coauthor in the plot's own thread, which they can see
+const briefTid = (b, role, pid) => b && role === "owner" ? `sit:${b.date}:${b.n}` : pid;
+const briefPoint = () => S.brief && I.takeaways[S.brief.date].find(x => x.n === S.brief.n);
+const sitName = d => (I.sittings || {})[d] || d;
 
 /* ---------- index helpers ---------- */
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -396,7 +405,8 @@ function treeNav() {
       return `<div class="leaf ${f && f.pid === pid ? "on" : ""} ${P[pid].archived ? "arch" : ""}"><input type="checkbox" data-tick="${esc(pid)}" ${isOpen(pid) ? "checked" : ""} title="show beside the open cards">${thumb(pid)}<div class="lb"><span class="ttl" data-sel="${esc(pid)}" title="${esc(title(pid))}">${esc(title(pid))}</span>${m ? `<div class="lm">${m}</div>` : ""}</div></div>`; }).join("");
     const kids = g.subs && S.bytask ? g.subs.map(x => { const qs = ps.filter(pid => x.plots.includes(pid)); if (!qs.length) return "";
       const k = `g:${g.id}|${x.t}`; return `<details class="grp sub" data-open="${esc(k)}" ${S.open[k] ?? true ? "open" : ""}><summary><span class="ttl">${esc(x.t)}</span><span class="badge">${qs.length}</span></summary><div class="kids">${leaves(qs)}</div></details>`; }).join("") : leaves(ps);
-    return `<details class="grp" data-open="g:${esc(g.id)}" ${open ? "open" : ""}><summary><span class="ttl">${esc(g.t)}</span><span class="badge">${ps.length}</span></summary><div class="kids">${kids}</div></details>`;
+    const bd = g.id.startsWith("read:") && ((I.takeaways || {})[g.id.slice(5)] || []).length ? g.id.slice(5) : "";
+    return `<details class="grp" data-open="g:${esc(g.id)}" ${open ? "open" : ""}><summary><span class="ttl">${esc(g.t)}</span>${bd ? `<a class="brieflink" href="?brief=${esc(bd)}" title="this sitting's results, ask by ask">Brief</a>` : ""}<span class="badge">${ps.length}</span></summary><div class="kids">${kids}</div></details>`;
   }).join("") + `</div>`;
 }
 function navPane() {
@@ -405,6 +415,38 @@ function navPane() {
   const ord = `<select id="order"><option value="name" ${S.order === "name" ? "selected" : ""}>by name</option><option value="date" ${S.order === "date" ? "selected" : ""}>newest first</option></select>`;
   const bytask = S.group === "read" && (I.tasks || []).length ? `<label class="bytask" title="split each sitting by the tasks a meeting set"><input type="checkbox" id="bytask" ${S.bytask ? "checked" : ""}> by task</label>` : "";
   return `<h4>${pin}Plots${bytask}${grp}${ord}</h4>${S.tag ? `<div class="tagbar">showing ${tagChip(S.tag, " ×")}</div>` : ""}${treeNav()}`;
+}
+
+// the Brief's list: the points in briefOrder, those nobody asked for under "Also found", then the asks still open
+function briefNav() {
+  const pin = `<button class="pin" data-min="navmin" title="${S.navmin ? "keep the list open" : "fold the list to the edge; it opens while the mouse is on it"}">${S.navmin ? "»" : "«"}</button>`;
+  const d = S.brief.date, ds = Object.keys(I.takeaways).filter(x => I.takeaways[x].length).sort(), i = ds.indexOf(d);
+  const pts = briefOrder(I.takeaways[d]), first = pts.findIndex(x => x.ask === null), open = (I.still_open || {})[d] || [];
+  const ext = x => x.link ? `<a href="${esc(x.link)}" target="_blank" rel="noopener">${md(x.t)}</a>` : md(x.t);
+  return `<h4>${pin}Brief · ${esc(sitName(d))}</h4><div class="briefnav"><a href="?">← the room</a>${i > 0 ? `<a href="?brief=${esc(ds[i - 1])}">‹ ${esc(sitName(ds[i - 1]))}</a>` : ""}${i < ds.length - 1 ? `<a href="?brief=${esc(ds[i + 1])}">${esc(sitName(ds[i + 1]))} ›</a>` : ""}</div>
+    <div class="tree">${pts.map((x, j) => (j === first ? `<div class="blabel">Also found</div>` : "") +
+      `<div class="leaf ${x.n === S.brief.n ? "on" : ""}" data-point="${x.n}"><span class="ttl">${x.n} · ${md(x.t)}</span></div>`).join("")}
+    ${open.length ? `<div class="blabel">Still open</div>${open.map(x => `<div class="bopen">${ext(x)}</div>`).join("")}` : ""}</div>`;
+}
+// the point above its exhibit: who asked, the text, the numbers no readout of that date gives, its other plots
+function briefHead(pt) {
+  const a = pt.ask, un = pt.unchecked || [];
+  const asked = a && a.t ? `<div class="asked">Asked: ${a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.t)}</a>` : esc(a.t)}</div>` : "";
+  const warn = un.length ? `<div class="about-warn">Not given by the readout: ${un.map(esc).join(", ")}</div>` : "";
+  // each at the option the brief names, beside the exhibit (another option of the exhibit's own plot too)
+  const also = pt.plots.slice(1).map(([pid, k], j) => P[pid] ? `<a href="?open=${esc(encodeURIComponent(pid))}" data-also="${j + 1}">${esc(P[pid].title)}${P[pid].files[k] && P[pid].axes.length ? ` (${esc(label(pid, parse(pid, k)))})` : ""}</a>` : "").filter(Boolean).join(" · ");
+  return `<div class="brief-head"><h3>${pt.n}. ${md(pt.t)}${warn ? ` <span class="badge outdated">numbers to check</span>` : ""}</h3>${asked}
+    ${pt.body.split(/\n\s*\n/).filter(x => x.trim()).map(x => `<p>${md(x)}</p>`).join("")}${warn}${also ? `<div class="also">Also: ${also}</div>` : ""}
+    ${owner() && pt.missing.length ? `<div class="hint">Not in the index: ${pt.missing.map(esc).join(", ")}</div>` : ""}</div>`;
+}
+// a point chosen: its exhibit as the one card, at the option the brief names; the address keeps the point
+function setPoint(n) {
+  S.brief.n = n;
+  const [pid, k] = briefPoint().plots[0] || [];
+  S.cards = P[pid] ? [newCard(pid, P[pid].files[k] ? parse(pid, k) : null)] : [];
+  S.focus = S.cards.length ? S.cards[0].id : null; S.replyTo = "plot";
+  history.replaceState(null, "", `?brief=${S.brief.date}&point=${n}`);
+  render();
 }
 
 /* ---------- render ---------- */
@@ -439,8 +481,8 @@ function draw() {
   m.style.setProperty("--navw", S.navw + "px"); m.style.setProperty("--sidew", S.sidew + "px");
   // the cards fill the room column by column, two to a column: the second under the first, the third top right, the
   // fourth bottom right (11-12); a fifth would open a third column
-  m.innerHTML = `<div class="pane nav ${S.navmin ? "min" : ""}">${navPane()}</div><div class="grip l" data-grip="navw" title="drag to resize"></div>
-    <div class="room">${n ? `<div class="cards" style="--rows:${n > 1 ? 2 : 1}">${S.cards.map(plotCard).join("")}</div>` : '<div class="empty">Tick a plot in the tree to open it.</div>'}</div>
+  m.innerHTML = `<div class="pane nav ${S.navmin ? "min" : ""}">${S.brief ? briefNav() : navPane()}</div><div class="grip l" data-grip="navw" title="drag to resize"></div>
+    <div class="room">${S.brief ? briefHead(briefPoint()) : ""}${n ? `<div class="cards" style="--rows:${n > 1 ? 2 : 1}">${S.cards.map(plotCard).join("")}</div>` : `<div class="empty">${S.brief ? "No plot for this point." : "Tick a plot in the tree to open it."}</div>`}</div>
     <div class="grip r" data-grip="sidew" title="drag to resize"></div><aside class="pane side ${S.sidemin ? "min" : ""}">${sideHTML()}</aside>`;
   document.querySelectorAll(".pv[data-pv]").forEach(pv => { const c = cardOf(pv.dataset.pv); if (c && c.z) zoomTo(pv, c.z); });
   fillTables(); fillSvgs();
@@ -484,7 +526,7 @@ document.addEventListener("click", e => {
   if (go) { const pid = decodeURIComponent(go.dataset.goto), have = S.cards.find(c => c.pid === pid);
     if (P[pid]) { e.preventDefault(); if (have) { S.focus = have.id; render(); } else tick(pid, true); } return; }
   if (sh) { e.preventDefault(); navigator.clipboard.writeText(sh.href).then(() => { sh.textContent = "✓ copied"; setTimeout(() => { sh.textContent = "🔗"; }, 1500); }, () => window.open(sh.href, "_blank")); return; }
-  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-split],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],#freset,#send,#sendnow,#pill");
+  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-split],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],[data-point],[data-also],#freset,#send,#sendnow,#pill");
   if (!t) { const n = e.target.closest(".pc[data-node]"); if (n && S.focus !== n.dataset.node) { S.focus = n.dataset.node; S.replyTo = "plot"; render(); } return; }
   if (t.dataset.set) { const [k, v] = t.dataset.set.split("|"); S[k] = v; if (PERSIST.includes(k)) store.set(k, v); render(); }
   else if (t.dataset.axis) { const [id, a, v] = t.dataset.axis.split("|"); setAxis(cardOf(id), a, v); }
@@ -496,6 +538,9 @@ document.addEventListener("click", e => {
     else { const [pid, id] = t.dataset.reply.split("§"); S.focus = S.cards.find(c => c.pid === pid).id; S.replyTo = id; S.open["qa:" + id] = true; }
     e.preventDefault();  // a button inside a question's summary must not fold it
     render(); const q = document.getElementById("q"); if (q) q.focus(); }
+  else if (t.dataset.point) setPoint(+t.dataset.point);
+  else if (t.dataset.also) { e.preventDefault(); const [pid, k] = briefPoint().plots[+t.dataset.also], have = S.cards.find(c => keyOf(c.pid, c.v) === k && c.pid === pid);
+    if (have) S.focus = have.id; else { const c = newCard(pid, P[pid].files[k] ? parse(pid, k) : null); S.cards.push(c); S.focus = c.id; } render(); }
   else if (t.dataset.tag) { S.tag = S.tag === t.dataset.tag ? "" : t.dataset.tag; render(); }
   else if (t.dataset.ser) { const [id, i] = t.dataset.ser.split("|"), c = cardOf(id), off = c.off || [], l = SVGS[fileOf(c).layers].labels[+i];
     c.off = off.includes(l) ? off.filter(x => x !== l) : [...off, l]; render(); }
@@ -525,6 +570,9 @@ document.addEventListener("input", e => { if (e.target.id === "filter") { S.filt
 document.addEventListener("keydown", e => {
   if (["TEXTAREA", "INPUT", "SELECT"].includes(e.target.tagName)) {
     if (e.key === "Enter" && !e.shiftKey && e.target.id === "q") { e.preventDefault(); document.getElementById("send").click(); } return; }
+  if (S.brief && ["j", "k"].includes(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {  // the next or previous point
+    const o = briefOrder(I.takeaways[S.brief.date]), nx = o[o.findIndex(x => x.n === S.brief.n) + (e.key === "j" ? 1 : -1)];
+    if (nx) setPoint(nx.n); return; }
   const c = focused(); if (!c || !P[c.pid].axes.length || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
   const p = P[c.pid], [a, vals] = p.axes[0], avail = vals.filter(v => p.files[keyOf(c.pid, { ...c.v, [a]: v })]);
   const i = avail.indexOf(c.v[a]); setAxis(c, a, avail[(i + (e.key === "ArrowRight" ? 1 : -1) + avail.length) % avail.length]);
@@ -599,7 +647,8 @@ window.agent = {
   else await hello();
   // ?open=<plot id>&open=<plot id> opens those cards, for a link that shows a plot (the demo site's); without it the room opens empty
   S.cards = new URLSearchParams(location.search).getAll("open").filter(pid => P[pid]).map(pid => newCard(pid));
-  render();
+  S.brief = briefOf(location.search, I.takeaways);  // ?brief=<read date>: that sitting's Brief, else the room as ever
+  if (S.brief) setPoint(S.brief.n); else render();
   if (I.hosted) await hello().then(() => { if (CLAUDE || OFFLINE) render(); });
   if (CLAUDE && window.agentStart) window.agentStart();
 })();
