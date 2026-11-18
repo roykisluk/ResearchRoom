@@ -2,6 +2,11 @@
 
 One line for each change that asks a project to do something. Fetch updates with `git pull`.
 
+## 2026-11-18
+- A Brief mode, `/room?brief=<read date>`: one sitting's results ask by ask, from `docs/runs/takeaways_<read date>.md`
+  with an `ask:` line per point and a `## Still open` section (README, "A sitting's brief"). The owner's questions
+  there go to one thread per point. To do: nothing; older takeaways files list every point as an ask.
+
 ## 2026-11-13
 - First version: the engine (`room/dashboard.py`, `room/agent.py`, `room/project.py`, `room/site/`) and
   `tools/clean-check.sh`. A project runs it as `python3 ../ResearchRoom/room/dashboard.py --project .`, keeps its

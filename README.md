@@ -38,6 +38,12 @@ python3 ../ResearchRoom/room/dashboard.py --project .
   An output whose number no script carries is a plot of its own. We note one limit: a file not named `N_name_vK.ext`,
   or one whose number several scripts carry while none matches its first word, is listed at `/all` only; the export
   names each such file.
+- **A sitting's brief** (optional): `docs/runs/takeaways_<read date>.md`, opened at `/room?brief=<read date>` (the
+  room's tree links it from that date). One `## N. <the ask, as a question or sentence>` per point, then these lines:
+  `ask: <who and when> | <https link>` (or `ask: <who and when>`, or `ask: none` for a result nobody asked for, listed
+  under "Also found"), `exhibit: <file>` (the plot the room opens) and `also: <file>, <file>`, then the text. A
+  `## Still open` section lists the asks that sitting did not answer, `- <text> | <https link>` a line. The room
+  flags any number in the text that no read-out of that date gives. Example: `example/docs/runs/takeaways_2026-11-03.md`.
 - **Files a figure script may write beside an output** (`<stem>` is the file name without its extension):
   `<stem>.txt`, the caption; `<stem>.eq.json`, the estimating equation as `{"eq": "<TeX>", "notes": [...]}`;
   `<stem>.variant.json`, the family a figure belongs to and its option on each switch; `<stem>.ptype`, the plot type;
