@@ -6,6 +6,8 @@ One line for each change that asks a project to do something. Fetch updates with
 - A Brief mode, `/room?brief=<read date>`: one sitting's results ask by ask, from `docs/runs/takeaways_<read date>.md`
   with an `ask:` line per point and a `## Still open` section (README, "A sitting's brief"). The owner's questions
   there go to one thread per point. To do: nothing; older takeaways files list every point as an ask.
+- The Brief has a chat column for the owner: one resumable Claude chat per sitting, kept in `.room/chats/` (ignored by
+  git), not in the Q&A. To do: nothing.
 
 ## 2026-11-13
 - First version: the engine (`room/dashboard.py`, `room/agent.py`, `room/project.py`, `room/site/`) and

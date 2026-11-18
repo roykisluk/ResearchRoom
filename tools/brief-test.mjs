@@ -3,8 +3,9 @@
 import { readFileSync } from "fs";
 const src = readFileSync("room/site/app/app.js", "utf8").split("\n");
 const line = p => src.find(l => l.startsWith(p)) || (console.error("missing in app.js: " + p), process.exit(1));
-const { briefOf, briefOrder, briefTid } = new Function(["const briefOrder = pts =>", "const briefOf = (qs, tk) =>", "const briefTid = (b, role, pid) =>"]
-  .map(line).join("\n") + "\nreturn { briefOf, briefOrder, briefTid };")();
+const { briefOf, briefOrder, briefTid, chatIds, chatParent } = new Function(["const briefOrder = pts =>", "const briefOf = (qs, tk) =>",
+  "const briefTid = (b, role, pid) =>", "const chatIds = (T, date) =>", "const chatParent = th =>"]
+  .map(line).join("\n") + "\nreturn { briefOf, briefOrder, briefTid, chatIds, chatParent };")();
 const eq = (a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) { console.error("got", JSON.stringify(a), "want", JSON.stringify(b)); process.exit(1); } };
 const tk = { "2026-10-20": [{ n: 1, ask: { t: "a", link: "" } }, { n: 2, ask: null }, { n: 3, ask: { t: "", link: "" } }], "2026-10-21": [] };
 eq(briefOrder(tk["2026-10-20"]).map(x => x.n), [1, 3, 2]);
@@ -20,4 +21,8 @@ eq(briefOf("?brief=2026-10-20", undefined), null);   // an index from before the
 eq(briefTid({ date: "2026-10-20", n: 2 }, "owner", "p"), "sit:2026-10-20:2");
 eq(briefTid({ date: "2026-10-20", n: 2 }, "reader", "p"), "p");
 eq(briefTid(null, "owner", "p"), "p");
+// the chat column: a sitting's chats in number order (10 after 2), and a message's parent, the chat's last answer
+eq(chatIds({ "chat:d:2": [], "chat:d:10": [], "chat:e:1": [], p: [] }, "d"), ["chat:d:2", "chat:d:10"]);
+eq(chatParent([{ k: "q", id: "q1" }, { k: "a", id: "a1" }, { k: "q", id: "q2" }, { k: "a", id: "a2" }]), "a2");
+eq(chatParent([]), "plot");
 console.log("brief check ok");

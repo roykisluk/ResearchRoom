@@ -44,6 +44,8 @@ python3 ../ResearchRoom/room/dashboard.py --project .
   under "Also found"), `exhibit: <file>` (the plot the room opens) and `also: <file>, <file>`, then the text. A
   `## Still open` section lists the asks that sitting did not answer, `- <text> | <https link>` a line. The room
   flags any number in the text that no read-out of that date gives. Example: `example/docs/runs/takeaways_2026-11-03.md`.
+  With the Claude panel, the owner also gets a chat column there: one resumable chat per sitting (`+ New` and a menu
+  of earlier ones), saved in `.room/chats/`, which ignores itself, never in `docs/qa/` and never shown to coauthors.
 - **Files a figure script may write beside an output** (`<stem>` is the file name without its extension):
   `<stem>.txt`, the caption; `<stem>.eq.json`, the estimating equation as `{"eq": "<TeX>", "notes": [...]}`;
   `<stem>.variant.json`, the family a figure belongs to and its option on each switch; `<stem>.ptype`, the plot type;

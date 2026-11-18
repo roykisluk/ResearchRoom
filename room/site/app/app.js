@@ -22,7 +22,8 @@ const PERSIST = ["theme", "kind", "order", "ptype", "model", "effort"];
 const S = { order: store.get("order", "name"), navw: +store.get("navw", 300), sidew: +store.get("sidew", 360),
   navmin: store.get("navmin", "0") === "1", sidemin: store.get("sidemin", "0") === "1",
   group: store.get("group2", "read").replace(/^finding$/, "read"), theme: store.get("theme", "light"), kind: store.get("kind", "figure"), ptype: store.get("ptype", "").replace(/^all$/, ""), viewer: "owner", bytask: store.get("bytask", "1") === "1",
-  filter: "", cards: [], focus: null, replyTo: "plot", open: {}, claude: { st: "idle", t0: 0, plot: null }, brief: null };
+  filter: "", cards: [], focus: null, replyTo: "plot", open: {}, claude: { st: "idle", t0: 0, plot: null }, brief: null,
+  chat: null, chatw: +store.get("chatw", 380), chatmin: store.get("chatmin", innerWidth < 1200 ? "1" : "0") === "1" };
 { const g = new URLSearchParams(location.search).get("group");  // /room?group=read, the dashboard's "Figures by read date"
   if (["script", "read"].includes(g)) { S.group = g; store.set("group2", g); } }
 let NEXT = 0;
@@ -35,6 +36,10 @@ const briefOf = (qs, tk) => { const q = new URLSearchParams(qs), d = q.get("brie
 const briefTid = (b, role, pid) => b && role === "owner" ? `sit:${b.date}:${b.n}` : pid;
 const briefPoint = () => S.brief && I.takeaways[S.brief.date].find(x => x.n === S.brief.n);
 const sitName = d => (I.sittings || {})[d] || d;
+// the Brief's chat column (11-18): the owner's chats about this sitting, chat:<date>:<k>, kept out of the Q&A by the hub;
+// a message's parent is the chat's last answer, so each one resumes the chat's Claude session
+const chatIds = (T, date) => Object.keys(T).filter(k => k.startsWith(`chat:${date}:`)).sort((a, b) => +a.split(":").pop() - +b.split(":").pop());
+const chatParent = th => (th.filter(c => c.k === "a").pop() || { id: "plot" }).id;
 
 /* ---------- index helpers ---------- */
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -297,7 +302,7 @@ function sideHTML() {
 }
 
 /* ---------- Q&A cards: a plot's thread in the Claude fold, each follow-up under the card it follows ---------- */
-function cardHTML(c) {
+function cardHTML(c, bare = false) {
   const secs = c.t0 ? Math.round((Date.now() - c.t0) / 1000) : 0;
   let body = "";
   if (c.live) {
@@ -307,18 +312,18 @@ function cardHTML(c) {
   } else {
     body = `${c.h ? `<h5>${esc(c.h)}</h5>` : ""}<div class="body">${md(c.b || "")}</div>`;
     // compact (11-15): a finished answer shows its title line; the answer opens on a click
-    if (c.k === "a") body = `<details class="ans" data-open="ans:${esc(c.id)}" ${S.open["ans:" + c.id] ? "open" : ""}><summary>${c.h ? `<h5>${esc(c.h)}</h5>` : "Answer"}</summary><div class="body">${md(c.b || "")}</div></details>`;
+    if (c.k === "a" && !bare) body = `<details class="ans" data-open="ans:${esc(c.id)}" ${S.open["ans:" + c.id] ? "open" : ""}><summary>${c.h ? `<h5>${esc(c.h)}</h5>` : "Answer"}</summary><div class="body">${md(c.b || "")}</div></details>`;
     if (c.k === "iss") { const url = ((c.res || "").match(/https:\/\/\S+/) || [""])[0];
       const done = /^(✓|\(fake\))/.test(c.res || "");  // a failed gh keeps its button, for a retry
       body += (c.res ? `<div class="by">${url ? `<a href="${esc(url)}" target="_blank">${esc(c.res.replace(url, "").trim())}</a>` : esc(c.res)}</div>` : "") +
-        (!done && asks() ? `<div class="okrow"><button class="btn pri" data-issue="${esc(c.pid)}§${esc(c.id)}" title="gh issue create in the project's repository">Open GitHub issue</button></div>` : ""); }
+        (!done && asks() && !bare ? `<div class="okrow"><button class="btn pri" data-issue="${esc(c.pid)}§${esc(c.id)}" title="gh issue create in the project's repository">Open GitHub issue</button></div>` : ""); }
     if (c.k === "ok" && c.commit && !c.res) body += `<div class="paths">${(c.paths || []).map(([path, on, note]) =>
       `<label><input type="checkbox" value="${esc(path)}" ${on ? "checked" : ""}> <span class="mono">${esc(path)}</span>${note ? ` <span class="badge">${esc(note)}</span>` : ""}</label>`).join("")}</div>
       <textarea class="msg">${esc(c.msg || "")}</textarea>`;
     if (c.k === "ok") body += c.res ? `<div class="by">${esc(c.res)}</div>` : (c.buttons || []).length ?
       `<div class="okrow">${c.buttons.map(([v, t], i) => `<button class="btn ${i ? "" : "pri"}" data-ok="${esc(c.id)}§${esc(v)}">${esc(t)}</button>`).join("")}</div>` : "";
   }
-  const foot = c.k === "ok" || c.live ? "" : `<div class="by">${esc((c.by || "").split(" · ").slice(0, 2).join(" · "))}${asks() ? `<button data-reply="${esc(c.pid)}§${esc(c.id)}">↳ follow up here</button>` : ""}</div>`;
+  const foot = c.k === "ok" || c.live ? "" : `<div class="by">${esc((c.by || "").split(" · ").slice(0, 2).join(" · "))}${asks() && !bare ? `<button data-reply="${esc(c.pid)}§${esc(c.id)}">↳ follow up here</button>` : ""}</div>`;
   return `<div class="card ${c.k} ${c.live ? "livecard" : ""}" data-card="${esc(c.id)}"><span class="kind ${c.k}">${KIND[c.k]}</span>${c.k === "q" ? `<h5 ${c.orig ? `title="as typed: ${esc(c.orig)}"` : ""}>${esc(c.h)}</h5>` : body}${foot}</div>`;
 }
 function threadHTML(pid) {
@@ -449,6 +454,19 @@ function setPoint(n) {
   render();
 }
 
+function chatPane() {
+  const d = S.brief.date, ids = chatIds(T, d);
+  if (!S.chat || !S.chat.startsWith(`chat:${d}:`)) S.chat = ids[ids.length - 1] || `chat:${d}:1`;
+  const all = ids.includes(S.chat) ? ids : [...ids, S.chat], th = T[S.chat] || [];
+  const name = id => { const t = T[id] || [], q = t.find(c => c.k === "q"), a = t.filter(c => c.session).pop();
+    return `chat ${id.split(":").pop()} · ${q ? q.h.slice(0, 30) : "new"}${a ? " · " + a.session : ""}`; };
+  const pin = `<button class="pin" data-min="chatmin" title="${S.chatmin ? "keep the chat open" : "fold the chat to the edge"}">${S.chatmin ? "‹" : "›"}</button>`;
+  return `<h4>${pin}Chat · ${esc(sitName(d))}<select id="chatsel" title="this sitting's chats; the id after the last dot resumes one in a terminal: claude --resume <id>">${all.map(id =>
+      `<option value="${esc(id)}" ${id === S.chat ? "selected" : ""}>${esc(name(id))}</option>`).join("")}</select><button class="btn" id="chatnew" title="a new chat about this sitting">+ New</button></h4>
+    <div class="chatmsgs">${th.length ? th.map(c => cardHTML(c, true)).join("") : `<div class="hint">Ask anything about this sitting's brief, its answers or the plot on screen. Not saved to the Q&A.</div>`}</div>
+    <div class="askbar"><textarea id="cq" placeholder="Ask Claude…"></textarea><div class="askrow"><button class="btn pri" id="csend" title="Enter: queued behind any run in progress">Ask ⏎</button><button class="btn" id="csendnow" title="start at once">Ask now</button>${seg("model", [["opus", "Opus"], ["sonnet", "Sonnet"]])}${seg("effort", [["low", "low"], ["medium", "medium"], ["high", "high"]])}</div></div>`;
+}
+
 /* ---------- render ---------- */
 function seg(name, opts) { return `<span class="seg">` + opts.map(([v, t]) => `<button data-set="${name}|${v}" class="${S[name] === v ? "on" : ""}">${t}</button>`).join("") + `</span>`; }
 function pill() {
@@ -458,15 +476,17 @@ function pill() {
   const q = c.running > 1 || c.queued ? ` · ${c.running || 0} running, ${c.queued || 0} queued` : "";
   return `<span class="pill ${c.st}" id="pill" title="jump to the plot Claude is working on"><span class="lamp"></span>${txt}${q}${c.plot && c.st !== "idle" && P[c.plot] ? ` · <span style="color:var(--muted)">${esc(title(c.plot).slice(0, 28))}…</span>` : ""}</span>`;
 }
-const SCROLL = [".pane.nav", ".pane.side", ".cards"];  // kept across a redraw
+const SCROLL = [".pane.nav", ".pane.side", ".cards", ".chatmsgs"];
+let CHATN = -1;  // the open chat's card count at the last draw: a new card scrolls the chat to its end  // kept across a redraw
 function render() {
-  const typed = document.getElementById("q"), qv = typed ? typed.value : "", qf = typed && document.activeElement === typed;
+  const keep = ["q", "cq"].map(id => { const t = document.getElementById(id); return [id, t ? t.value : "", t && document.activeElement === t]; });
   const at = SCROLL.map(s => { const el = document.querySelector(s); return el ? el.scrollTop : 0; });
   draw();
   SCROLL.forEach((s, i) => { const el = document.querySelector(s); if (el) el.scrollTop = at[i]; });
-  const q = document.getElementById("q");
-  if (q && qv) { q.value = qv; }
-  if (q && qf) q.focus();
+  keep.forEach(([id, v, f]) => { const t = document.getElementById(id); if (t && v) t.value = v; if (t && f) t.focus(); });
+  const cm = document.querySelector(".chatmsgs"), n = S.chat ? (T[S.chat] || []).length : -1;
+  if (cm && n !== CHATN) cm.scrollTop = cm.scrollHeight;
+  CHATN = n;
 }
 function draw() {
   document.documentElement.dataset.theme = S.theme;
@@ -477,12 +497,14 @@ function draw() {
     <input class="filter" id="filter" placeholder="filter plots…" value="${esc(S.filter)}">${filterMenu()}<span class="spacer"></span>${pill()}`;
   document.getElementById("bannerslot").innerHTML = owner() || I.hosted ? "" : `<div class="banner">Collaborator preview: what collaborators would see once this is on the hosted site. No Claude, no Q&A, no script names.</div>`;
   const m = document.getElementById("main"), n = S.cards.length;
-  m.className = [S.navmin ? "navmin" : "", S.sidemin ? "sidemin" : ""].join(" ");
-  m.style.setProperty("--navw", S.navw + "px"); m.style.setProperty("--sidew", S.sidew + "px");
+  const chat = S.brief && boss();
+  m.className = [S.navmin ? "navmin" : "", S.sidemin ? "sidemin" : "", chat ? "haschat" : "", chat && S.chatmin ? "chatmin" : ""].join(" ");
+  m.style.setProperty("--navw", S.navw + "px"); m.style.setProperty("--sidew", S.sidew + "px"); m.style.setProperty("--chatw", S.chatw + "px");
   // the cards fill the room column by column, two to a column: the second under the first, the third top right, the
   // fourth bottom right (11-12); a fifth would open a third column
   m.innerHTML = `<div class="pane nav ${S.navmin ? "min" : ""}">${S.brief ? briefNav() : navPane()}</div><div class="grip l" data-grip="navw" title="drag to resize"></div>
     <div class="room">${S.brief ? briefHead(briefPoint()) : ""}${n ? `<div class="cards" style="--rows:${n > 1 ? 2 : 1}">${S.cards.map(plotCard).join("")}</div>` : `<div class="empty">${S.brief ? "No plot for this point." : "Tick a plot in the tree to open it."}</div>`}</div>
+    ${chat ? `<div class="grip c" data-grip="chatw" title="drag to resize"></div><div class="pane chat ${S.chatmin ? "min" : ""}" ${S.chatmin ? 'data-min="chatmin" title="open the chat"' : ""}>${chatPane()}</div>` : ""}
     <div class="grip r" data-grip="sidew" title="drag to resize"></div><aside class="pane side ${S.sidemin ? "min" : ""}">${sideHTML()}</aside>`;
   document.querySelectorAll(".pv[data-pv]").forEach(pv => { const c = cardOf(pv.dataset.pv); if (c && c.z) zoomTo(pv, c.z); });
   fillTables(); fillSvgs();
@@ -526,14 +548,16 @@ document.addEventListener("click", e => {
   if (go) { const pid = decodeURIComponent(go.dataset.goto), have = S.cards.find(c => c.pid === pid);
     if (P[pid]) { e.preventDefault(); if (have) { S.focus = have.id; render(); } else tick(pid, true); } return; }
   if (sh) { e.preventDefault(); navigator.clipboard.writeText(sh.href).then(() => { sh.textContent = "✓ copied"; setTimeout(() => { sh.textContent = "🔗"; }, 1500); }, () => window.open(sh.href, "_blank")); return; }
-  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-split],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],[data-point],[data-also],#freset,#send,#sendnow,#pill");
+  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-split],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],[data-point],[data-also],#freset,#send,#sendnow,#pill,#csend,#csendnow,#chatnew");
   if (!t) { const n = e.target.closest(".pc[data-node]"); if (n && S.focus !== n.dataset.node) { S.focus = n.dataset.node; S.replyTo = "plot"; render(); } return; }
   if (t.dataset.set) { const [k, v] = t.dataset.set.split("|"); S[k] = v; if (PERSIST.includes(k)) store.set(k, v); render(); }
   else if (t.dataset.axis) { const [id, a, v] = t.dataset.axis.split("|"); setAxis(cardOf(id), a, v); }
   else if (t.dataset.sel) only(t.dataset.sel);
   else if (t.dataset.split) split(cardOf(t.dataset.split));
   else if (t.dataset.close) { S.cards = S.cards.filter(c => c.id !== t.dataset.close); if (!cardOf(S.focus)) S.focus = S.cards.length ? S.cards[0].id : null; render(); }
-  else if (t.dataset.min) { const k = t.dataset.min; S[k] = !S[k]; store.set(k, S[k] ? "1" : "0"); render(); }
+  else if (t.dataset.min) { const k = t.dataset.min; S[k] = !S[k]; store.set(k, S[k] ? "1" : "0");
+    if (k === "chatmin" && !S.chatmin && innerWidth < 1400) S.sidemin = true;  // a narrow screen: the chat takes the details' room
+    render(); }
   else if (t.dataset.reply) { if (t.dataset.reply === "reset") S.replyTo = "plot";
     else { const [pid, id] = t.dataset.reply.split("§"), have = S.cards.find(c => c.pid === pid); if (have) S.focus = have.id; S.replyTo = id; S.open["qa:" + id] = true; }
     e.preventDefault();  // a button inside a question's summary must not fold it
@@ -550,6 +574,8 @@ document.addEventListener("click", e => {
   else if (t.id === "freset") { S.arch = S.old = false; FILTERS.forEach(([k]) => { S[k] = ""; }); store.set("ptype", ""); render(); }
   else if (t.dataset.ok && window.agent) { const [id, v] = t.dataset.ok.split("§"); window.agent.approve(id, v); }
   else if ((t.id === "send" || t.id === "sendnow") && window.agent) { const q = document.getElementById("q"); if (q && q.value.trim()) window.agent.ask(focused(), S.replyTo, q.value.trim(), t.id === "sendnow"); }
+  else if ((t.id === "csend" || t.id === "csendnow") && window.agent) { const q = document.getElementById("cq"); if (q && q.value.trim()) window.agent.chat(q.value.trim(), t.id === "csendnow"); }
+  else if (t.id === "chatnew") { const ids = chatIds(T, S.brief.date); S.chat = `chat:${S.brief.date}:${ids.length ? +ids[ids.length - 1].split(":").pop() + 1 : 1}`; render(); }
   else if (t.id === "pill" && S.claude.plot && P[S.claude.plot]) only(S.claude.plot);
 });
 document.addEventListener("toggle", e => { const d = e.target; if (d.dataset && d.dataset.open) { S.open[d.dataset.open] = d.open;
@@ -557,6 +583,7 @@ document.addEventListener("toggle", e => { const d = e.target; if (d.dataset && 
 document.addEventListener("change", e => {
   if (e.target.dataset.impsel) { const pid = e.target.dataset.impsel, level = e.target.value;  // on every member of a family
     post("api/importance", { ids: P[pid].members || [pid], level }).then(r => { if (r.ok) { P[pid].importance = level; render(); } }); }
+  if (e.target.id === "chatsel") { S.chat = e.target.value; render(); }
   if (e.target.id === "bytask") { S.bytask = e.target.checked; store.set("bytask", S.bytask ? "1" : "0"); render(); }
   if (e.target.id === "grp") { S.group = e.target.value; store.set("group2", S.group); render(); }
   if (e.target.dataset.filt) { S[e.target.dataset.filt] = e.target.value; if (e.target.dataset.filt === "ptype") store.set("ptype", S.ptype); render(); }
@@ -569,7 +596,7 @@ document.addEventListener("input", e => { if (e.target.id === "filter") { S.filt
   const f = document.getElementById("filter"); f.focus(); f.setSelectionRange(at, at); } });
 document.addEventListener("keydown", e => {
   if (["TEXTAREA", "INPUT", "SELECT"].includes(e.target.tagName)) {
-    if (e.key === "Enter" && !e.shiftKey && e.target.id === "q") { e.preventDefault(); document.getElementById("send").click(); } return; }
+    if (e.key === "Enter" && !e.shiftKey && ["q", "cq"].includes(e.target.id)) { e.preventDefault(); document.getElementById(e.target.id === "q" ? "send" : "csend").click(); } return; }
   if (S.brief && ["j", "k"].includes(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {  // the next or previous point
     const o = briefOrder(I.takeaways[S.brief.date]), nx = o[o.findIndex(x => x.n === S.brief.n) + (e.key === "j" ? 1 : -1)];
     if (nx) setPoint(nx.n); return; }
@@ -611,6 +638,7 @@ window.agentStart = async () => {
   const d = await (await fetch("api/threads")).json();
   Object.entries(d.cards).forEach(([pid, cs]) => cs.forEach(c => upsert(pid, c)));
   Object.assign(S.claude, d.status);
+  S.chat = null;  // the chat column opens the sitting's newest chat, now that the threads are in
   render();
   const es = new EventSource("api/events");
   es.onmessage = m => {
@@ -633,6 +661,13 @@ window.agent = {
     post("api/ask", { plot: pid, parent, text, now, model: S.model, effort: S.effort, ctx: { title: P[pid].title, variant: label(pid, c.v), path: f.path, script: P[pid].script,
       caption: f.caption_txt ? f.path.replace(/\.[^.]+$/, ".txt") : "" } });
     document.getElementById("q").value = ""; S.replyTo = "plot";
+  },
+  chat(text, now) {  // the Brief's chat: what is on screen goes with every message
+    const c = focused(), pt = briefPoint(), d = S.brief.date, f = c && fileOf(c);
+    post("api/ask", { plot: S.chat, parent: chatParent(T[S.chat] || []), text, now, model: S.model, effort: S.effort, ctx: { title: sitName(d),
+      variant: `point ${pt.n}: ${pt.t}` + (c ? `; plot: ${P[c.pid].title} (${label(c.pid, c.v)}; ${f.path})` : "; no plot open"),
+      path: `docs/runs/takeaways_${d}.md`, script: `docs/runs/readout_${d}_*.md` } });
+    document.getElementById("cq").value = "";
   },
   approve(id, v) {
     const el = document.querySelector(`[data-card="${CSS.escape(id)}"]`), msg = el && el.querySelector("textarea.msg");
