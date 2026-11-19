@@ -7,7 +7,7 @@
 # folder path. Plus one extended regular expression per line of the deny-list, which holds the personal strings
 # themselves and so lives outside the repository: ~/.config/researchroom/denylist, or $ROOM_DENYLIST. An allow-list beside
 # it (~/.config/researchroom/allowlist, or $ROOM_ALLOWLIST) names, one expression per line, the few strings that contain
-# a personal one and may still appear, such as the project's website; only the whole string passes.
+# a personal one and may still appear, such as a web address; only the whole string passes.
 # Prints file:line:match for each hit and exits 1; exits 0 when clean; exits 2 when a pattern is not a valid
 # expression, since grep would then report nothing. A missing deny-list is a warning: the built-in patterns alone
 # prove little. Binary files (figures, icons) are not read.

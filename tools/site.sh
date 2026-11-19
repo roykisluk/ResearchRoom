@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# The project's website: the landing page (landing/) at the root, and the example project's room at /demo/.
+# A static site: the landing page (landing/) at the root, and the example project's room at /demo/.
 #   tools/site.sh DIR        build it into DIR, to look at: python3 -m http.server -d DIR
-#   tools/site.sh --deploy   build it and deploy it to the Cloudflare Pages project "researchroom", which is public:
-#                            every number in the example is made up. Needs CLOUDFLARE_API_TOKEN (Pages Edit) and
+#   tools/site.sh --deploy   build it and deploy it to the Cloudflare Pages project "researchroom".
+#                            Needs CLOUDFLARE_API_TOKEN (Pages Edit) and
 #                            CLOUDFLARE_ACCOUNT_ID in the environment, and npx.
 # Needs uv and pdftoppm. The example is drawn again in a copy outside git (example/make.py), where the room dates each
 # plot by the sitting that brought it back. The landing page's links to this repository come from the git remote at

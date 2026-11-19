@@ -6,9 +6,6 @@ result. You run it on your own project; nothing is uploaded unless you publish i
 
 ![The room: plots grouped by read date and task on the left, four open cards, the details of one on the right](landing/room.webp)
 
-A [live demo](https://researchroom.roykisluk.com/demo/), built from the example below, runs on the project's
-[website](https://researchroom.roykisluk.com).
-
 ## What you need
 - Python 3.11 or newer, and poppler (`pdftoppm`) to show PDF figures: `apt install poppler-utils` or `brew install poppler`.
 - Nothing else for local use: the server is standard library only.
@@ -97,7 +94,7 @@ down, the site works and the panel says so.
 ## Developing
 `tools/pre-push` runs the self-tests, exports the example, and runs `tools/clean-check.sh`, which keeps personal
 details out of this repository. Install it once: `ln -s ../../tools/pre-push .git/hooks/pre-push`. MIT licence.
-`tools/site.sh DIR` builds the project's website (`landing/`, and the example's room at `/demo/`); `--deploy` publishes it.
+`tools/site.sh DIR` builds a static site (`landing/`, and the example's room at `/demo/`); `--deploy` publishes it.
 
 Comments in the code cite dated notes (`docs/plans/…`, `DECISIONS`, `docs/lessons.md`, dates such as 10-20). They are the
 design notes of the project the dashboard was first built in, and they are not in this repository.
