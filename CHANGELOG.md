@@ -2,6 +2,11 @@
 
 One line for each change that asks a project to do something. Fetch updates with `git pull`.
 
+## 2026-11-21
+- The hosted copy asks its room for the owner's archive and importance marks (`GET /api/marks`) and shows those over
+  its `index.json`, which is only as new as the last publish: an item archived on the shared site no longer comes back
+  on a refresh. To do: publish the hosted copy once, so it carries the new `app.js`.
+
 ## 2026-11-18
 - A Brief mode, `/room?brief=<read date>`: one sitting's results ask by ask, from `docs/runs/takeaways_<read date>.md`
   with an `ask:` line per point and a `## Still open` section (README, "A sitting's brief"). The owner's questions

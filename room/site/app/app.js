@@ -625,6 +625,19 @@ async function hello() {
     S.model = store.get("model", ROLE === "reader" ? "sonnet" : "opus"); S.effort = store.get("effort", "medium");
   } catch (e) { CLAUDE = false; }
 }
+// the hosted copy's index.json is from the last publish: the owner's archive and marks since then are the room's (11-21)
+async function freshMarks() {
+  try {
+    const d = await (await fetch("api/marks", { signal: AbortSignal.timeout(5000) })).json();
+    if (!Array.isArray(d.archived) || !d.importance) return;  // an old room or an error: keep the snapshot
+    const gone = new Set(d.archived);
+    for (const [pid, p] of Object.entries(P)) {
+      const ids = p.members || [pid];
+      p.archived = ids.every(i => gone.has(i));
+      p.importance = [pid, ...ids].map(i => d.importance[i]).find(Boolean) || "";
+    }
+  } catch (e) {}
+}
 const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json());
 function upsert(pid, c) { c.pid = pid; const cs = T[pid] = T[pid] || []; const i = cs.findIndex(x => x.id === c.id); if (i >= 0) cs[i] = c; else cs.push(c); }
 function patch(c) {  // a card already on screen changes in place; a new card needs a full render
@@ -691,6 +704,6 @@ window.agent = {
   S.cards = new URLSearchParams(location.search).getAll("open").filter(pid => P[pid]).map(pid => newCard(pid));
   S.brief = briefOf(location.search, I.takeaways);  // ?brief=<read date>: that sitting's Brief, else the room as ever
   if (S.brief) setPoint(S.brief.n); else render();
-  if (I.hosted) await hello().then(() => { if (CLAUDE || OFFLINE) render(); });
+  if (I.hosted) await hello().then(async () => { if (CLAUDE) await freshMarks(); if (CLAUDE || OFFLINE) render(); });
   if (CLAUDE && window.agentStart) window.agentStart();
 })();

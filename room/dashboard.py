@@ -2041,6 +2041,8 @@ class Handler(BaseHTTPRequestHandler):  # GET, plus POST for the Claude panel un
     def api_get(self, path, who):
         if path == "/api/hello":
             return self.send(200, json.dumps(dict(ok=True, role=who[0], who=who[1])).encode(), "application/json")
+        if path == "/api/marks":  # the hosted copy's index.json is the last publish: archive and marks since then (11-21)
+            return self.send(200, json.dumps(dict(archived=sorted(archived()), importance=marks())).encode(), "application/json")
         if path == "/api/threads":  # a reader's view: the plots the shared site shows, no steps or approvals (agent.Hub.view)
             return self.send(200, json.dumps(dict(cards=HUB.view(who[0]), status=HUB.status)).encode(), "application/json")
         if path == "/api/events":  # server-sent events: every card change and status change, until the page goes away
