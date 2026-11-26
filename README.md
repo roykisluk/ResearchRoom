@@ -3,6 +3,8 @@
 A dashboard for an empirical research project. It reads the figures and tables your scripts already write, and shows
 them as a *room*: one card per plot, its versions and variants behind switches, grouped by the date you read each
 result. You run it on your own project; nothing is uploaded unless you publish it yourself.
+On a card with several versions, `⇆ v1` opens the older version beside it (cards of one plot zoom together) and `◐`
+flips the two in place, so small changes stand out.
 
 ![The room: plots grouped by read date and task on the left, four open cards, the details of one on the right](landing/room.webp)
 

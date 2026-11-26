@@ -65,6 +65,11 @@ function best(pid) {  // the newest version, then the lowest-ranked option on ea
 }
 const DEF = {};  // a plot's first combination: the one its finding shows, else best()
 const fileOf = c => P[c.pid].files[keyOf(c.pid, c.v)];
+// the older version to compare a card with (11-26): the same options at the next older version that has them, else
+// that version's first file (v2 may have an option v1 lacks); null at the oldest or with no version axis.
+// On one line: tools/compare-test.mjs cuts it out by its first words
+const prevV = (p, v) => { const ax = p.axes.map(([a]) => a), vs = (p.axes.find(([a]) => a === "version") || [0, []])[1], k = o => ax.map(a => o[a]).join("|"); for (const ver of vs.slice(vs.indexOf(v.version) + 1)) { const o = { ...v, version: ver }; if (p.files[k(o)]) return o; const f = Object.keys(p.files).find(s => s.split("|").pop() === ver); if (f) return Object.fromEntries(ax.map((a, i) => [a, f.split("|")[i]])); } return null; };
+const olderOf = c => { const o = c.v.version && prevV(P[c.pid], c.v); return o ? { v: o, f: P[c.pid].files[keyOf(c.pid, o)] } : null; };
 const label = (pid, v) => P[pid].axes.map(([a]) => v[a]).filter(Boolean).join(" · ") || "only version";
 const thread = pid => T[pid] || [];
 const live = pid => S.claude.plot === pid && !["idle", "done"].includes(S.claude.st);
@@ -134,6 +139,7 @@ function setAxis(c, a, val) {
   let want = { ...c.v, [a]: val };
   if (!P[c.pid].files[keyOf(c.pid, want)]) want = combos(c.pid).filter(o => o[a] === val)[0];
   if (!want) return;
+  c.blink = false;
   const k = c.want = keyOf(c.pid, want);
   S.focus = c.id;
   ready(P[c.pid].files[k]).then(() => { if (c.want === k) { c.v = want; render(); } });  // a later click wins
@@ -348,9 +354,13 @@ function askBar() {
 function plotCard(c) {
   const p = P[c.pid], f = fileOf(c), sel = S.cards.length > 1 && c.id === focused().id;
   const split = Object.keys(p.files).length > 1 ? `<button class="btn" data-split="${c.id}" title="open this plot again beside this card, to set another option">⇆ split</button>` : "";
+  // compare with the older version: beside this card, or flipped in place (◐, plain images only: zoom rides on the <img>)
+  const old = olderOf(c), img = f => f.img && !f.layers;
+  const cmp = old ? `<button class="btn" data-older="${c.id}" title="open the older version beside this card">⇆ ${esc(old.v.version)}</button>` +
+    (img(f) && img(old.f) ? `<button class="btn ${c.blink ? "on" : ""}" data-blink="${c.id}" title="flip between this version and ${esc(old.v.version)} in place">◐</button>` : "") : "";
   // a link that opens this plot on the shared site (dashboard.py index: site), for a collaborator; a click copies it (11-17)
   const share = `<a class="btn" data-share href="${esc((I.site || location.origin + location.pathname) + "?open=" + encodeURIComponent(c.pid))}" title="copy a link that opens this plot on the shared site">🔗</a>`;
-  return `<div class="pc ${sel ? "sel" : ""}" data-node="${c.id}"><div class="pc-head"><span class="kind">${p.kind === "table" ? "TABLE" : "PLOT"}</span><b title="${esc(title(c.pid))}">${esc(title(c.pid))}</b>${impHTML(c.pid, true)}${p.archived ? '<span class="badge">archived</span>' : ""}${live(c.pid) ? '<span class="live"></span>' : ""}${split}${share}<button class="x" data-close="${c.id}" title="close this card">×</button></div>
+  return `<div class="pc ${sel ? "sel" : ""}" data-node="${c.id}"><div class="pc-head"><span class="kind">${p.kind === "table" ? "TABLE" : "PLOT"}</span><b title="${esc(title(c.pid))}">${esc(title(c.pid))}</b>${impHTML(c.pid, true)}${p.archived ? '<span class="badge">archived</span>' : ""}${live(c.pid) ? '<span class="live"></span>' : ""}${split}${cmp}${share}<button class="x" data-close="${c.id}" title="close this card">×</button></div>
     ${p.axes.length ? `<div class="pc-opt">${esc(label(c.pid, c.v))}</div>` : ""}<div class="pv" data-pv="${c.id}">${view(f)}</div></div>`;
 }
 // a card's zoom {x, y, k}: the image scaled by k from its top left and moved by x, y, kept inside its box
@@ -360,23 +370,32 @@ function zoomTo(pv, z) {
   const im = pv.querySelector("img, .svgv"); if (im) im.style.transform = `translate(${z.x}px,${z.y}px) scale(${z.k})`;
   pv.classList.toggle("zoomed", z.k > 1);
 }
+// cards of one plot share one zoom (11-26), so a version set beside another zooms to the same spot
+function zoomAll(c) {
+  S.cards.filter(d => d.pid === c.pid).forEach(d => { d.z = c.z; const pv = document.querySelector(`.pv[data-pv="${d.id}"]`); if (pv) zoomTo(pv, d.z); });
+}
 document.addEventListener("wheel", e => {
   const pv = e.target.closest(".pv"), c = pv && cardOf(pv.dataset.pv);
   if (!c || !pv.querySelector("img, .svgv")) return;  // a table scrolls itself
   e.preventDefault();
   const z = c.z || (c.z = { x: 0, y: 0, k: 1 }), r = pv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
   const k = Math.min(12, Math.max(1, z.k * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))));  // ctrlKey: a trackpad pinch
-  z.x = mx - (mx - z.x) * k / z.k; z.y = my - (my - z.y) * k / z.k; z.k = k; zoomTo(pv, z);
+  z.x = mx - (mx - z.x) * k / z.k; z.y = my - (my - z.y) * k / z.k; z.k = k; zoomAll(c);
 }, { passive: false });
 let pan = null;
 document.addEventListener("pointerdown", e => {
   const pv = e.target.closest(".pv"), c = pv && cardOf(pv.dataset.pv);
   if (!c || !c.z || c.z.k <= 1 || !pv.querySelector("img, .svgv")) return;
-  pan = { pv, z: c.z, x: e.clientX - c.z.x, y: e.clientY - c.z.y }; pv.setPointerCapture(e.pointerId); pv.classList.add("drag");
+  pan = { pv, c, z: c.z, x: e.clientX - c.z.x, y: e.clientY - c.z.y }; pv.setPointerCapture(e.pointerId); pv.classList.add("drag");
 });
-document.addEventListener("pointermove", e => { if (pan) { pan.z.x = e.clientX - pan.x; pan.z.y = e.clientY - pan.y; zoomTo(pan.pv, pan.z); } });
+document.addEventListener("pointermove", e => { if (pan) { pan.z.x = e.clientX - pan.x; pan.z.y = e.clientY - pan.y; zoomAll(pan.c); } });
 document.addEventListener("pointerup", () => { if (pan) { pan.pv.classList.remove("drag"); pan = null; } });
-document.addEventListener("dblclick", e => { const pv = e.target.closest(".pv"), c = pv && cardOf(pv.dataset.pv); if (c && c.z) { c.z = { x: 0, y: 0, k: 1 }; zoomTo(pv, c.z); } });
+document.addEventListener("dblclick", e => { const pv = e.target.closest(".pv"), c = pv && cardOf(pv.dataset.pv); if (c && c.z) { c.z = { x: 0, y: 0, k: 1 }; zoomAll(c); } });
+// ◐: every 700 ms a blinking card shows the other of its two versions, named in the corner
+let BLINK = false;
+setInterval(() => { BLINK = !BLINK; S.cards.filter(c => c.blink).forEach(c => {
+  const pv = document.querySelector(`.pv[data-pv="${c.id}"]`), im = pv && pv.querySelector("img"), o = olderOf(c);
+  if (!im || !o) return; im.src = (BLINK ? o.f : fileOf(c)).img; pv.dataset.shown = BLINK ? o.v.version : c.v.version; }); }, 700);
 
 /* ---------- the tree: groups fold; a plot is a row with a box that opens it beside the others ---------- */
 // The owner's tags (.room/tags.tsv): one colour per tag from a fixed set of hues; a click shows that tag's plots only
@@ -525,6 +544,9 @@ function split(c) {  // a second card of the same plot, at the next combination 
   const next = vals.slice(i + 1).concat(vals.slice(0, i)).map(v => ({ ...c.v, [a]: v })).find(o => p.files[keyOf(c.pid, o)]) || combos(c.pid).find(o => keyOf(c.pid, o) !== keyOf(c.pid, c.v));
   const n = newCard(c.pid, next || c.v); S.cards.splice(S.cards.indexOf(c) + 1, 0, n); S.focus = n.id; render();
 }
+function openOlder(c) {  // the older version's card beside this one, at the same zoom
+  const n = newCard(c.pid, olderOf(c).v); n.z = c.z; S.cards.splice(S.cards.indexOf(c) + 1, 0, n); S.focus = n.id; render();
+}
 let popT = 0;
 const pop = () => document.getElementById("pop") || document.body.appendChild(Object.assign(document.createElement("img"), { id: "pop", alt: "" }));
 const unpop = () => { clearTimeout(popT); pop().style.display = "none"; };
@@ -548,12 +570,14 @@ document.addEventListener("click", e => {
   if (go) { const pid = decodeURIComponent(go.dataset.goto), have = S.cards.find(c => c.pid === pid);
     if (P[pid]) { e.preventDefault(); if (have) { S.focus = have.id; render(); } else tick(pid, true); } return; }
   if (sh) { e.preventDefault(); navigator.clipboard.writeText(sh.href).then(() => { sh.textContent = "✓ copied"; setTimeout(() => { sh.textContent = "🔗"; }, 1500); }, () => window.open(sh.href, "_blank")); return; }
-  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-split],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],[data-point],[data-also],#freset,#send,#sendnow,#pill,#csend,#chatnew");
+  const t = e.target.closest("[data-set],[data-sel],[data-axis],[data-reply],[data-ok],[data-split],[data-older],[data-blink],[data-close],[data-archive],[data-issue],[data-ser],[data-tag],[data-min],[data-point],[data-also],#freset,#send,#sendnow,#pill,#csend,#chatnew");
   if (!t) { const n = e.target.closest(".pc[data-node]"); if (n && S.focus !== n.dataset.node) { S.focus = n.dataset.node; S.replyTo = "plot"; render(); } return; }
   if (t.dataset.set) { const [k, v] = t.dataset.set.split("|"); S[k] = v; if (PERSIST.includes(k)) store.set(k, v); render(); }
   else if (t.dataset.axis) { const [id, a, v] = t.dataset.axis.split("|"); setAxis(cardOf(id), a, v); }
   else if (t.dataset.sel) only(t.dataset.sel);
   else if (t.dataset.split) split(cardOf(t.dataset.split));
+  else if (t.dataset.older) openOlder(cardOf(t.dataset.older));
+  else if (t.dataset.blink) { const c = cardOf(t.dataset.blink); if (c.blink) { c.blink = false; render(); } else ready(olderOf(c).f).then(() => { c.blink = true; render(); }); }
   else if (t.dataset.close) { S.cards = S.cards.filter(c => c.id !== t.dataset.close); if (!cardOf(S.focus)) S.focus = S.cards.length ? S.cards[0].id : null; render(); }
   else if (t.dataset.min) { const k = t.dataset.min; S[k] = !S[k]; store.set(k, S[k] ? "1" : "0");
     if (k === "chatmin" && !S.chatmin && innerWidth < 1400) S.sidemin = true;  // a narrow screen: the chat takes the details' room

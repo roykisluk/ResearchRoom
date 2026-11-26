@@ -12,6 +12,7 @@ tools/room-scripts-test.sh > /dev/null  # the server launchers, against stub tmu
 if command -v node > /dev/null; then node tools/qa-function-test.mjs > /dev/null; fi  # the shared site's Q&A forwarder
 if command -v node > /dev/null; then node tools/md-link-test.mjs > /dev/null; fi  # card text: only ?open= links render
 if command -v node > /dev/null; then node tools/brief-test.mjs > /dev/null; fi  # the Brief: which point opens, list order, which thread
+if command -v node > /dev/null; then node tools/compare-test.mjs > /dev/null; fi  # a card's compare: which older version ⇆ and ◐ show
 python3 room/dashboard.py --project example --export "$t/full" > /dev/null
 mkdir "$t/bare"; cp -r example/figures example/tables "$t/bare/"
 python3 room/dashboard.py --project "$t/bare" --export "$t/out" > /dev/null
