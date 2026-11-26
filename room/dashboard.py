@@ -96,16 +96,19 @@ def build(outputs, scripts):
 
 
 # Staleness by content (11-26). .room/inputs.tsv (optional, by hand): "NN<TAB>path or glob, ...", NN "*" for every
-# script (shared helpers). .room/runs.tsv (written here, tracked in git): "output<TAB>md5<TAB>dep=md5<TAB>...".
+# script (shared helpers). .room/runs.tsv (written here, tracked in git):
+# "output<TAB>md5<TAB>mtime<TAB>host<TAB>dep=md5<TAB>...", the output's mtime as seen on the machine that wrote it.
 RUNS, INPUTS = os.path.join(DATA, "runs.tsv"), os.path.join(DATA, "inputs.tsv")
 RUNS_LOCK = threading.Lock()  # scan() runs in several server threads at once
+HOST = os.uname().nodename
 
 
 def stale(groups, fns):
     """Flags each newest output of a script by what it was made from: its script version and its inputs.tsv lines.
     Recorded and unchanged since: build's date flag "older" goes; a dep whose md5 moved makes it "stale" (f["why"]).
     No record, or the output was rewritten: recorded when no dep is newer, else "older" (the date rule). An output
-    reading a stale or older output is stale too. The record is never refreshed while the output's md5 is unchanged.
+    reading a stale or older output is stale too. Same md5 but a new mtime, on the machine that wrote the record, with
+    no dep newer: a rerun that wrote the same bytes, recorded afresh (a clone or another machine's mtimes are not trusted).
     ponytail: a big data input is re-hashed in full once per new mtime; a comment-only script edit counts as a change."""
     pats = defaultdict(list)
     if os.path.isfile(INPUTS):
@@ -120,8 +123,8 @@ def stale(groups, fns):
         if os.path.isfile(RUNS):
             with open(RUNS, encoding="utf-8") as fh:
                 for l in fh:
-                    if len(r := l.rstrip("\n").split("\t")) >= 2:
-                        runs[r[0]] = (r[1], dict(x.rsplit("=", 1) for x in r[2:] if "=" in x))
+                    if len(r := l.rstrip("\n").split("\t")) >= 4:
+                        runs[r[0]] = (r[1], r[2], r[3], dict(x.rsplit("=", 1) for x in r[4:] if "=" in x))
         before, done, ins = dict(runs), {}, {}
         for (nn, fn), keys in groups.items():
             vers = fns.get(nn, {}).get(fn, {})
@@ -133,18 +136,19 @@ def stale(groups, fns):
                 ins[path] = sorted((hits.get(nn, set()) | hits.get("*", set())) - {path})
                 deps, done[path] = [f"code/local/{nn}_{fn}_v{f['k']}.py"] + ins[path], f
                 f["flags"] = [x for x in f["flags"] if x != "older"]
-                rec = runs.get(path)
-                if rec and rec[0] == md5(path):
-                    if (new := {d: md5(d) for d in deps if d not in rec[1]}):  # newly declared: recorded, not flagged
-                        runs[path] = (rec[0], {**rec[1], **new})
-                    if (moved := [d for d in deps if d in rec[1] and md5(d) != rec[1][d]]):
+                rec, newer = runs.get(path), [d for d in deps if os.path.getmtime(os.path.join(ROOT, d)) > f["mtime"]]
+                fresh = (md5(path), repr(f["mtime"]), HOST, {d: md5(d) for d in deps})
+                if rec and rec[0] == md5(path) and not (rec[1] != repr(f["mtime"]) and rec[2] == HOST and not newer):
+                    if (new := {d: md5(d) for d in deps if d not in rec[3]}):  # newly declared: recorded, not flagged
+                        runs[path] = (*rec[:3], {**rec[3], **new})
+                    if (moved := [d for d in deps if d in rec[3] and md5(d) != rec[3][d]]):
                         f["flags"].append("stale")
                         f["why"] = "changed since written: " + ", ".join(moved)
-                elif (newer := [d for d in deps if os.path.getmtime(os.path.join(ROOT, d)) > f["mtime"]]):
+                elif newer:
                     f["flags"].append("older")
                     f["why"] = "older than " + ", ".join(newer)
                 else:
-                    runs[path] = (md5(path), {d: md5(d) for d in deps})
+                    runs[path] = fresh
         bad = lambda f: {"stale", "older"} & set(f["flags"])
         while (up := [(f, q) for p, f in done.items() if not bad(f) for q in ins[p] if q in done and bad(done[q])]):
             for f, q in up:
@@ -155,8 +159,8 @@ def stale(groups, fns):
             os.makedirs(DATA, exist_ok=True)
             fd, tmp = tempfile.mkstemp(dir=DATA)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.writelines("\t".join([p, o] + [f"{d}={h}" for d, h in sorted(ds.items())]) + "\n"
-                              for p, (o, ds) in sorted(runs.items()))
+                fh.writelines("\t".join([p, o, mt, host] + [f"{d}={h}" for d, h in sorted(ds.items())]) + "\n"
+                              for p, (o, mt, host, ds) in sorted(runs.items()))
             os.replace(tmp, RUNS)
 
 
@@ -2680,10 +2684,18 @@ def selftest():
         put(d, "data/x.csv", "x2")
         assert chk() == (1, ["figures/03_a_v1.png\tstale\tchanged since written: data/x.csv",
                              "tables/04_b_v1.csv\tstale\tinput figures/03_a_v1.png is stale"]), chk()
+        put(d, "figures/03_a_v1.png", "f2", T + 500)  # 03 rerun, the same bytes: its new mtime here says so
+        assert chk() == (0, []), chk()
+        with open(os.path.join(d, ".room", "runs.tsv")) as fh:  # another machine's record: its mtime is not trusted
+            rows = fh.read().replace("\t" + os.uname().nodename + "\t", "\telsewhere\t")
+        with open(os.path.join(d, ".room", "runs.tsv"), "w") as fh:
+            fh.write(rows)
+        put(d, "data/x.csv", "x3"); put(d, "figures/03_a_v1.png", "f2", T + 550)
+        assert chk()[0] == 1, chk()
         os.remove(os.path.join(d, ".room", "runs.tsv"))  # no record: the date rule
-        put(d, "code/local/03_a_v1.py", "a3", T + 400)
+        put(d, "code/local/03_a_v1.py", "a3", T + 600)
         assert chk() == (1, ["figures/03_a_v1.png\tolder\tolder than code/local/03_a_v1.py",
-                             "tables/04_b_v1.csv\tstale\tinput figures/03_a_v1.png is stale"]), chk()
+                             "tables/04_b_v1.csv\tolder\tolder than figures/03_a_v1.png"]), chk()
     with tempfile.TemporaryDirectory() as d:  # a project in a subfolder of its repository keeps its commit dates: the floor rests on them
         os.makedirs(os.path.join(d, "analysis", "figures")); os.makedirs(os.path.join(d, "analysis", "docs", "runs"))
         for rel in ("figures/10_a_v1.png", "docs/runs/readout_2026-01-02_1st.md"):

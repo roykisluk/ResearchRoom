@@ -62,9 +62,10 @@ what it was made from when it was written: its script version, plus what you lis
 script, `N<TAB>path or glob, ...` (`*` for every script, for shared helpers; `#` starts a comment). An output whose
 sources changed since is flagged `stale`, and so is any output that reads it; hover the flag for the reason. An output
 with no record yet is flagged `older` when a source is newer than it, by date. `python3 room/dashboard.py --project .
---check` lists them all and exits 1 if there are any; in a pre-push hook, add `|| true` to warn without blocking. We
-note two limits: a comment-only edit of a script counts as a change, and a rerun that writes the same bytes keeps the
-flag.
+--check` lists them all and exits 1 if there are any; in a pre-push hook, add `|| true` to warn without blocking. A rerun
+that writes the same bytes clears the flag on the machine that wrote the record, by the output's new date; elsewhere
+(another machine, a fresh clone) it keeps the flag until the output's bytes change. We note one limit: a comment-only
+edit of a script counts as a change.
 
 ## Publishing (optional)
 `--export DIR` writes the room as static files that any static host can serve. The built-in recipe is Cloudflare Pages
