@@ -87,7 +87,7 @@ const FILTERS = [  // [state key, label, the plot's value(s)]: every viewer, as 
   ["inF", "Finding", pid => INF.has(pid) ? "in a finding" : "not in a finding"],
   ["about", "Purpose · How · Results", aboutState],
   ["src", "Drawn", pid => P[pid].drawn || "locally"],
-  ["flag", "Flags", pid => (P[pid].flags || []).some(x => x === "behind" || x === "older") ? "behind or older" : "up to date"],
+  ["flag", "Flags", pid => (P[pid].flags || []).some(x => x === "behind" || x === "older" || x === "stale") ? "needs a rerun" : "up to date"],
 ];
 // a plot whose every file is an older drawing (a newer version of its name lives in another plot) hides like an archived one
 const older = pid => Object.values(P[pid].files).every(f => f.flags.includes("superseded"));
@@ -297,7 +297,7 @@ function sideHTML() {
     OFFLINE ? sec("claude", "Claude", `<div class="hint">Claude is offline: its server is down. The dashboard works as usual.</div>`) : "";
   if (!c) return `<div class="side-top">${pin}<span>Details</span></div>` + (S.brief && tid ? qa : `<div class="empty">Open a plot to see its details here.</div>`);
   const p = P[c.pid], f = fileOf(c);
-  const flags = f.flags.map(x => `<span class="flag">${esc(x)}</span>`).join(" ");
+  const flags = f.flags.map(x => `<span class="flag"${f.why ? ` title="${esc(f.why)}"` : ""}>${esc(x)}</span>`).join(" ");
   const arch = boss() ? `<button class="btn" data-archive="${esc(c.pid)}" title="${p.archived ? "show it in the tree again" : "hide it from the tree, for collaborators too; the filter's Show archived brings it back"}">${p.archived ? "Restore" : "Archive"}</button>` : "";
   const cap = f.caption_txt ? `<div class="tv cap" data-src="${esc(f.path.replace(/\.[^.]+$/, ".txt"))}">Loading…</div>` : "";
   return `<div class="side-top">${pin}<span>Details</span></div><div class="side-head"><b>${esc(title(c.pid))}</b>${impHTML(c.pid, true)}${p.archived ? ' <span class="badge">archived</span>' : ""}

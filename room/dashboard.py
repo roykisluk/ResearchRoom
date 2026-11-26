@@ -19,8 +19,9 @@ that carry the owner's Access login, or the shared site's function with a reader
 
 An output is NN_<what>_vK[_suffix].<ext>; NN names its script, code/local/NN_<function>_vK.py
 (code/local/CLAUDE.md). The disk is read on every request; nothing outside figures/ and tables/ is
-served, and nothing is written but the owner's clicks in the room, with --claude only: archiving a plot
-(.room/archived.tsv, /api/archive), the importance mark (.room/importance.tsv, /api/importance). Standard library, plus poppler's pdftoppm to show a PDF's page 1 as an image.
+served, and nothing is written but .room/runs.tsv (what each output was made from, stale()) and the owner's clicks in
+the room, with --claude only: archiving a plot (.room/archived.tsv, /api/archive), the importance mark
+(.room/importance.tsv, /api/importance). Standard library, plus poppler's pdftoppm to show a PDF's page 1 as an image.
 """
 import argparse, csv, glob, hashlib, html, json, mimetypes, os, queue, re, secrets, shutil, subprocess, sys, tempfile, threading, time
 from collections import Counter, defaultdict
@@ -42,9 +43,12 @@ LEGEND = [
                    "'older versions'."),
     ("behind", "the newest _vK of this name is below the newest version of its script in code/local: that "
                "version either no longer writes it or has not been run."),
-    ("older", "the file is older (modification time) than the script version whose _vK it carries: the script "
-              "was edited after this output was written. Meaningless after a fresh clone or a sync that resets "
-              "modification times."),
+    ("older", "the file is older (modification time) than the script version whose _vK it carries, or than an "
+              "input .room/inputs.tsv names, and .room/runs.tsv has no record of what it was made from. Meaningless "
+              "after a fresh clone or a sync that resets modification times."),
+    ("stale", "something this file was made from changed since it was written, by content (.room/runs.tsv): its "
+              "script version, an input .room/inputs.tsv names, or an input that is itself stale or older. Hover "
+              "the flag for which."),
 ]
 LEGEND_D = dict(LEGEND)
 
@@ -91,6 +95,71 @@ def build(outputs, scripts):
     return groups, unmapped, fns
 
 
+# Staleness by content (11-26). .room/inputs.tsv (optional, by hand): "NN<TAB>path or glob, ...", NN "*" for every
+# script (shared helpers). .room/runs.tsv (written here, tracked in git): "output<TAB>md5<TAB>dep=md5<TAB>...".
+RUNS, INPUTS = os.path.join(DATA, "runs.tsv"), os.path.join(DATA, "inputs.tsv")
+RUNS_LOCK = threading.Lock()  # scan() runs in several server threads at once
+
+
+def stale(groups, fns):
+    """Flags each newest output of a script by what it was made from: its script version and its inputs.tsv lines.
+    Recorded and unchanged since: build's date flag "older" goes; a dep whose md5 moved makes it "stale" (f["why"]).
+    No record, or the output was rewritten: recorded when no dep is newer, else "older" (the date rule). An output
+    reading a stale or older output is stale too. The record is never refreshed while the output's md5 is unchanged.
+    ponytail: a big data input is re-hashed in full once per new mtime; a comment-only script edit counts as a change."""
+    pats = defaultdict(list)
+    if os.path.isfile(INPUTS):
+        with open(INPUTS, encoding="utf-8") as fh:
+            for l in fh:
+                if not l.startswith("#") and len(r := l.rstrip("\n").split("\t")) == 2:
+                    pats[r[0].strip()] += [x.strip() for x in r[1].split(",") if x.strip()]
+    hits = {k: {os.path.relpath(q, ROOT) for pat in v for q in glob.glob(os.path.join(ROOT, pat)) if os.path.isfile(q)}
+            for k, v in pats.items()}
+    with RUNS_LOCK:
+        runs = {}
+        if os.path.isfile(RUNS):
+            with open(RUNS, encoding="utf-8") as fh:
+                for l in fh:
+                    if len(r := l.rstrip("\n").split("\t")) >= 2:
+                        runs[r[0]] = (r[1], dict(x.rsplit("=", 1) for x in r[2:] if "=" in x))
+        before, done, ins = dict(runs), {}, {}
+        for (nn, fn), keys in groups.items():
+            vers = fns.get(nn, {}).get(fn, {})
+            for files in keys.values():
+                f = files[0]  # the newest _vK of this name
+                if f["k"] not in vers:
+                    continue
+                path = f"{f['dir']}/{f['name']}"
+                ins[path] = sorted((hits.get(nn, set()) | hits.get("*", set())) - {path})
+                deps, done[path] = [f"code/local/{nn}_{fn}_v{f['k']}.py"] + ins[path], f
+                f["flags"] = [x for x in f["flags"] if x != "older"]
+                rec = runs.get(path)
+                if rec and rec[0] == md5(path):
+                    if (new := {d: md5(d) for d in deps if d not in rec[1]}):  # newly declared: recorded, not flagged
+                        runs[path] = (rec[0], {**rec[1], **new})
+                    if (moved := [d for d in deps if d in rec[1] and md5(d) != rec[1][d]]):
+                        f["flags"].append("stale")
+                        f["why"] = "changed since written: " + ", ".join(moved)
+                elif (newer := [d for d in deps if os.path.getmtime(os.path.join(ROOT, d)) > f["mtime"]]):
+                    f["flags"].append("older")
+                    f["why"] = "older than " + ", ".join(newer)
+                else:
+                    runs[path] = (md5(path), {d: md5(d) for d in deps})
+        bad = lambda f: {"stale", "older"} & set(f["flags"])
+        while (up := [(f, q) for p, f in done.items() if not bad(f) for q in ins[p] if q in done and bad(done[q])]):
+            for f, q in up:
+                if not bad(f):
+                    f["flags"].append("stale")
+                    f["why"] = f"input {q} is stale"
+        if runs != before:
+            os.makedirs(DATA, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=DATA)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.writelines("\t".join([p, o] + [f"{d}={h}" for d, h in sorted(ds.items())]) + "\n"
+                              for p, (o, ds) in sorted(runs.items()))
+            os.replace(tmp, RUNS)
+
+
 def ls(*parts):
     """The names in ROOT/parts, [] when the folder is absent: every folder but figures/ or tables/ is optional and
     switches its part of the room on by being there (design 2026-11-13 §2). In the folder's own order, not sorted:
@@ -118,7 +187,9 @@ def findings_text():
 def scan():
     outs = [(d, n, os.path.getmtime(p)) for d in DIRS for n in ls(d)
             if not n.startswith(".") and not n.endswith((VARIANT, PTYPE_EXT, EQ_EXT, EQ_TXT, LAYERS)) and os.path.isfile(p := os.path.join(ROOT, d, n))]
-    return build(outs, [(n, os.path.getmtime(os.path.join(LOCAL, n))) for n in ls("code", "local")])
+    groups, unmapped, fns = build(outs, [(n, os.path.getmtime(os.path.join(LOCAL, n))) for n in ls("code", "local")])
+    stale(groups, fns)
+    return groups, unmapped, fns
 
 
 # The control room (/room, plan docs/plans/2026-10-15-control-room.md) reads one index. A plot is a family of
@@ -281,7 +352,8 @@ def index(scanned, ftext, side, titler=lambda path: "", names={}, vars_of=lambda
             path = f"{d}/{f['name']}"
             cap = os.path.join(ROOT, d, f["name"].rsplit(".", 1)[0] + ".txt") if d == "figures" else ""
             p["files"]["|".join(combo)] = dict(path=path, img=img_url(path), k=f["k"], flags=f["flags"],
-                                               mtime=int(f["mtime"]), caption_txt=os.path.isfile(cap))
+                                               mtime=int(f["mtime"]), caption_txt=os.path.isfile(cap),
+                                               **({"why": f["why"]} if f.get("why") else {}))
             if (v := vars_of(path)):
                 p["files"]["|".join(combo)]["vars"] = v
             by_path[path] = (pid, "|".join(combo))
@@ -1271,7 +1343,8 @@ def hosted(ix, since=FLOOR, born={}):
     disclosure floor, older versions and archived plots included, since collaborators see everything but the Claude
     features (10-20); no script numbers or file names. Option values left with no file are dropped; a finding or a
     takeaway naming a dropped file points at its plot's main file. The "older" flag (modification times) is left out:
-    the hosted copy is built from a clone, where those times mean nothing."""
+    the hosted copy is built from a clone, where those times mean nothing; "stale" (by content) stays, without its
+    "why", which names files."""
     ix = json.loads(json.dumps(ix))
     for pid, p in list(ix["plots"].items()):
         files = {c: dict(path=f["path"], img=f["img"], k=f["k"], mtime=f["mtime"], caption_txt=f["caption_txt"],
@@ -1319,7 +1392,7 @@ h1,h2{font-family:var(--serif);font-weight:600;letter-spacing:-.01em} h2{font-si
 button,input,select,textarea{font:inherit;font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--rule);border-radius:6px}
 button{padding:5px 12px;cursor:pointer} button:hover{border-color:var(--muted)} input,select,textarea{padding:5px 8px}
 .fl{font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px;color:#fff;white-space:nowrap}
-.superseded{background:#8A94A0} .behind{background:#B7791F} .older{background:#B23B3B} .fl.new{background:var(--accent);color:var(--surface)}
+.superseded{background:#8A94A0} .behind{background:#B7791F} .older{background:#B23B3B} .stale{background:#B23B3B} .fl.new{background:var(--accent);color:var(--surface)}
 .warn{color:var(--contested);font-weight:600} .err{color:var(--contested);font-size:12px;margin-left:8px}
 /* overview: a sticky rail of findings beside the reading column */
 .layout{display:grid;grid-template-columns:300px minmax(0,1fr);max-width:1320px;margin:0 auto}
@@ -1795,7 +1868,8 @@ def reader_dir(out):
 
 def row(f, label=None):
     e, url = html.escape, f"/f/{f['dir']}/{quote(f['name'])}"
-    flags = "".join(f'<b class="fl {x}">{x}</b>' for x in f["flags"])
+    tip = f' title="{html.escape(f["why"])}"' if f.get("why") else ""
+    flags = "".join(f'<b class="fl {x}"{tip}>{x}</b>' for x in f["flags"])
     when = time.strftime("%Y-%m-%d %H:%M", time.localtime(f["mtime"]))
     return (f'<details class=it data-src="{url}" data-ext="{f["name"].rsplit(".", 1)[-1].lower()}"><summary>'
             f'<code>{f["dir"]}/{e(label or f["name"])}</code> {flags} <span class=dim>{when}</span> '
@@ -1833,7 +1907,7 @@ def page():
                         f'<div class=row data-q="{html.escape(f["name"].lower())}">{row(f)}</div>'
                         for f in sorted(unmapped, key=lambda f: f["name"])) + "</section>")
     summary = (f"{len(groups)} script groups, {n_latest} latest outputs, {n_flag} names with a flag on the latest "
-               f"version (behind {counts['behind']}, older {counts['older']}), {counts['superseded']} superseded "
+               f"version (behind {counts['behind']}, older {counts['older']}, stale {counts['stale']}), {counts['superseded']} superseded "
                f"files, {len(unmapped)} unmapped. Read {time.strftime('%Y-%m-%d %H:%M:%S')}.")
     legend = "".join(f'<li><b class="fl {k}">{k}</b> {html.escape(v)}</li>' for k, v in LEGEND)
     return f"""<!doctype html><html><head><meta charset=utf-8><title>{html.escape(NAME)} outputs</title>{STYLE}</head><body class=plain>
@@ -2557,6 +2631,28 @@ def selftest():
     with tempfile.TemporaryDirectory() as d:
         r = run("--project", d, "--export", os.path.join(d, "x"))  # neither figures/ nor tables/: one line, no traceback
         assert r.returncode == 1 and "no figures/ or tables/" in r.stderr and "Traceback" not in r.stderr, r.stderr
+    T = time.time() - 1000  # stale() (11-26): every time pinned, scripts and data at T, outputs at T + 100
+
+    def put(d, rel, text, t=T):
+        os.makedirs(os.path.dirname(q := os.path.join(d, rel)), exist_ok=True)
+        with open(q, "w") as fh:
+            fh.write(text)
+        os.utime(q, (t, t))
+
+    def proj(d):  # 03 draws a figure from data/x.csv; 04 tabulates that figure
+        for rel, text in (("code/local/03_a_v1.py", "a"), ("code/local/04_b_v1.py", "b"), ("data/x.csv", "x"),
+                          (".room/inputs.tsv", "# NN, inputs\n03\tdata/x.csv\n04\tfigures/03_a_v1.png\n")):
+            put(d, rel, text)
+        put(d, "figures/03_a_v1.png", "f", T + 100); put(d, "tables/04_b_v1.csv", "t", T + 100)
+    with tempfile.TemporaryDirectory() as d:  # the hosted copy keeps "stale" but not its "why", which names files
+        proj(d); out = os.path.join(d, "x")
+        assert run("--project", d, "--export", out).returncode == 0
+        put(d, "code/local/03_a_v1.py", "a2")
+        assert run("--project", d, "--export", out).returncode == 0
+        with open(os.path.join(out, "index.json")) as fh:
+            fs = {f["path"]: f for p in json.load(fh)["plots"].values() for f in p["files"].values()}
+        assert [fs[q]["flags"] for q in ("figures/03_a_v1.png", "tables/04_b_v1.csv")] == [["stale"], ["stale"]], fs
+        assert not any("why" in f for f in fs.values()), fs
     with tempfile.TemporaryDirectory() as d:  # a project in a subfolder of its repository keeps its commit dates: the floor rests on them
         os.makedirs(os.path.join(d, "analysis", "figures")); os.makedirs(os.path.join(d, "analysis", "docs", "runs"))
         for rel in ("figures/10_a_v1.png", "docs/runs/readout_2026-01-02_1st.md"):
