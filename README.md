@@ -31,7 +31,7 @@ python3 ../ResearchRoom/room/dashboard.py --project .
   or three digits and `K` the version, as in `02_shares_v1.png`. The newest version is shown; older ones are flagged
   `superseded` at `/all`.
 - **Optional, and switched on by being there:** `code/local/N_name_vK.py` (the script that writes the outputs
-  numbered `N`: its link, and a flag when an output is older than its script); `docs/findings.md` (the overview at `/`;
+  numbered `N`: its link, and a flag when an output needs a rerun, see below); `docs/findings.md` (the overview at `/`;
   format in `example/docs/findings.md`); `docs/runs/readout_<date>_<label>.md` and `out/N_name_vK/RELEASE/` (results
   that come back from a restricted-data site, dated by the commit that added the read-out); `docs/log/`.
   An output whose number no script carries is a plot of its own. We note one limit: a file not named `N_name_vK.ext`,
@@ -56,6 +56,15 @@ python3 ../ResearchRoom/room/dashboard.py --project .
 The dashboard keeps what belongs to your project in `.room/`, inside the project: titles, tags, tasks and the like as
 tab-separated files, your icons, and `config.toml`. Every setting is optional. `example/.room/config.toml` lists all of
 them with a comment each; a key that is not on that list stops the dashboard with a message that names it.
+
+**Which outputs need a rerun.** The room records in `.room/runs.tsv` (commit it) the md5 of each newest output and of
+what it was made from when it was written: its script version, plus what you list in `.room/inputs.tsv`, one line per
+script, `N<TAB>path or glob, ...` (`*` for every script, for shared helpers; `#` starts a comment). An output whose
+sources changed since is flagged `stale`, and so is any output that reads it; hover the flag for the reason. An output
+with no record yet is flagged `older` when a source is newer than it, by date. `python3 room/dashboard.py --project .
+--check` lists them all and exits 1 if there are any; in a pre-push hook, add `|| true` to warn without blocking. We
+note two limits: a comment-only edit of a script counts as a change, and a rerun that writes the same bytes keeps the
+flag.
 
 ## Publishing (optional)
 `--export DIR` writes the room as static files that any static host can serve. The built-in recipe is Cloudflare Pages

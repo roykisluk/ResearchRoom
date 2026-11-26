@@ -1249,6 +1249,17 @@ def about_todo():
                               old=rows.get(pid)), ensure_ascii=False))
 
 
+def check():
+    """One line per flagged newest output (path, flags, why), by script number; 1 if any. A pre-push warning:
+    `python3 room/dashboard.py --project . --check || true`."""
+    groups, _, _ = scan()
+    bad = sorted((nn, f"{f['dir']}/{f['name']}", " ".join(f["flags"]), f.get("why", ""))
+                 for (nn, _), keys in groups.items() for f in (fs[0] for fs in keys.values()) if f["flags"])
+    for _, path, flags, why in bad:
+        print("\t".join(x for x in (path, flags, why) if x))
+    return 1 if bad else 0
+
+
 def labels_todo():
     """The room's words still to write, as JSON lines: each figure without a What is this? line (plot: the id to write
     it under, a family's main member), each without a tag (.room/tags.tsv; every figure carries one, 10-20) and
@@ -2653,6 +2664,26 @@ def selftest():
             fs = {f["path"]: f for p in json.load(fh)["plots"].values() for f in p["files"].values()}
         assert [fs[q]["flags"] for q in ("figures/03_a_v1.png", "tables/04_b_v1.csv")] == [["stale"], ["stale"]], fs
         assert not any("why" in f for f in fs.values()), fs
+    with tempfile.TemporaryDirectory() as d:  # --check through the five cases
+        proj(d)
+        chk = lambda: (lambda r: (r.returncode, r.stdout.splitlines()))(run("--project", d, "--check"))
+        assert chk() == (0, []), chk()
+        with open(os.path.join(d, ".room", "runs.tsv")) as fh:
+            assert [l.split("\t")[0] for l in fh] == ["figures/03_a_v1.png", "tables/04_b_v1.csv"]
+        put(d, "code/local/03_a_v1.py", "a2")  # edited, its date set back: content, not dates
+        assert chk() == (1, ["figures/03_a_v1.png\tstale\tchanged since written: code/local/03_a_v1.py",
+                             "tables/04_b_v1.csv\tstale\tinput figures/03_a_v1.png is stale"]), chk()
+        put(d, "figures/03_a_v1.png", "f2", T + 200)  # 03 rerun: 04 read the old figure
+        assert chk() == (1, ["tables/04_b_v1.csv\tstale\tchanged since written: figures/03_a_v1.png"]), chk()
+        put(d, "tables/04_b_v1.csv", "t2", T + 300)
+        assert chk() == (0, []), chk()
+        put(d, "data/x.csv", "x2")
+        assert chk() == (1, ["figures/03_a_v1.png\tstale\tchanged since written: data/x.csv",
+                             "tables/04_b_v1.csv\tstale\tinput figures/03_a_v1.png is stale"]), chk()
+        os.remove(os.path.join(d, ".room", "runs.tsv"))  # no record: the date rule
+        put(d, "code/local/03_a_v1.py", "a3", T + 400)
+        assert chk() == (1, ["figures/03_a_v1.png\tolder\tolder than code/local/03_a_v1.py",
+                             "tables/04_b_v1.csv\tstale\tinput figures/03_a_v1.png is stale"]), chk()
     with tempfile.TemporaryDirectory() as d:  # a project in a subfolder of its repository keeps its commit dates: the floor rests on them
         os.makedirs(os.path.join(d, "analysis", "figures")); os.makedirs(os.path.join(d, "analysis", "docs", "runs"))
         for rel in ("figures/10_a_v1.png", "docs/runs/readout_2026-01-02_1st.md"):
@@ -2788,6 +2819,7 @@ if __name__ == "__main__":
     ap.add_argument("--reader-dir", metavar="DIR", help="write the folder a coauthor's Claude reads to DIR (built under --claude)")
     ap.add_argument("--claude", action="store_true", help="add the owner's Claude panel to /room (needs claude-agent-sdk)")
     ap.add_argument("--about-todo", action="store_true", help="list the figures whose Purpose / How / What it shows is missing or outdated")
+    ap.add_argument("--check", action="store_true", help="list the newest outputs that need a rerun (stale, older, behind); exit 1 if any")
     ap.add_argument("--labels-todo", action="store_true", help="list the figures without a What is this? line or a tag, and chips named by a file-name token")
     ap.add_argument("--public", metavar="HOST", help="with --claude: also serve the room to the owner's Access login at HOST (a tunnel; env ACCESS_AUD)")
     ap.add_argument("--publish", action="store_true", help="deploy the export to Cloudflare Pages as [hosted] in .room/config.toml says; refuses unless Access guards the hosts")
@@ -2808,6 +2840,8 @@ if __name__ == "__main__":
         sys.exit(about_todo())
     if a.labels_todo:
         sys.exit(labels_todo())
+    if a.check:
+        sys.exit(check())
     PORT = a.port
     if a.claude:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
