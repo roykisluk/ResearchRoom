@@ -1544,7 +1544,7 @@ def pdf_png(p, plain=False):
     """Page 1 of a PDF as PNG bytes, the equation page unless `plain`; rendered in a temporary folder, so nothing is
     written to the repo."""
     p = os.path.join(ROOT, os.path.relpath(p, ROOT) if plain else eq_of(os.path.relpath(p, ROOT)))
-    key = (p, os.path.getmtime(p))
+    key = (p, os.path.getmtime(p), 300)  # 300 dpi: sharp text on a 2x screen; the dpi in the key drops older caches
     if key not in PNG:
         disk = os.path.join(PNG_DIR, hashlib.md5(repr(key).encode()).hexdigest() + ".png")
         if not os.path.isfile(disk):
@@ -1553,7 +1553,7 @@ def pdf_png(p, plain=False):
                 raise SystemExit(1)
             os.makedirs(PNG_DIR, exist_ok=True)
             with tempfile.TemporaryDirectory(dir=PNG_DIR) as t:  # same disk, so the move is atomic
-                subprocess.run(["pdftoppm", "-png", "-r", "150", "-singlefile", p, os.path.join(t, "x")], check=True)
+                subprocess.run(["pdftoppm", "-png", "-r", str(key[2]), "-singlefile", p, os.path.join(t, "x")], check=True)
                 os.replace(os.path.join(t, "x.png"), disk)
         with open(disk, "rb") as fh:
             PNG[key] = fh.read()
