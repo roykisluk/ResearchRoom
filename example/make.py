@@ -38,7 +38,7 @@ def save(fig, name, sitting, ptype, caption, eq=None, variant=None, layers=False
     path = os.path.join(HERE, "figures", name)
     stem = path.rsplit(".", 1)[0]
     fig.tight_layout()
-    fig.savefig(path, dpi=150, **({"metadata": {"CreationDate": None}} if name.endswith(".pdf") else {}))  # same bytes each run
+    fig.savefig(path, dpi=150 if name.endswith(".pdf") else 400, **({"metadata": {"CreationDate": None}} if name.endswith(".pdf") else {}))  # same bytes each run
     if layers:  # the room's Series chips: each legend series tagged ser-<i>-<j>, its legend entry ser-<i>-leg / -legh
         ax, lg = fig.axes[0], fig.axes[0].get_legend()
         labels = [t.get_text() for t in lg.texts]
