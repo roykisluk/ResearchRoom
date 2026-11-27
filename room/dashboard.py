@@ -1571,7 +1571,8 @@ def img_url(path, plain=False):
     # the shown file's time in the URL: Cloudflare keeps an image 4 hours under its URL whatever the server says
     # (the web room, 10-20), so a redrawn page, or one that gained its equation, gets a new URL
     src = os.path.join(ROOT, path if plain else eq_of(path))
-    v = f"?v={int(os.path.getmtime(src))}" if os.path.isfile(src) else ""
+    # and its size: a file rewritten with a pinned time (the example's make.py) still gets a new URL
+    v = f"?v={int(os.path.getmtime(src))}-{os.path.getsize(src)}" if os.path.isfile(src) else ""
     png = ".plain.png" if plain else ".png"
     return f"png/{d}/{quote(name)}{png}{v}{'-' + str(DPI) if v else ''}" if ext == "pdf" else f"f/{d}/{quote(name)}{v}" if ext in ("png", "svg", "jpg") else ""
 
