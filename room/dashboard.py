@@ -811,7 +811,7 @@ def index_now(bundled=True):
     """The room's index; bundled=False leaves the loose plots as they were (--about-todo's rows are kept per member)."""
     read_of, sittings = reads_now()
     ix = dict(index(scan(), findings_text(), sidecar, out_title, names(), variables, plot_type, read_of), sittings=sittings)
-    plots, scripts = enclave(read_of, names())
+    plots, scripts = results(read_of, names())
     ix["plots"].update(plots)
     ix["scripts"] += scripts
     for pid, t in tags().items():
@@ -827,7 +827,7 @@ def index_now(bundled=True):
     gone, said, marked, helps = archived(), whatis_rows(), marks(), switch_help()
     for pid, p in ix["plots"].items():
         p["help"] = {a: h for a, _ in p["axes"] if (h := helps.get((p["nn"], a)) or helps.get(("*", a)))}
-        p["drawn"] = "in the enclave" if p["script"].startswith("code/enclave/") else "locally"
+        p["drawn"] = "with the results" if p["script"].startswith(RESULTS_CODE) else "locally"
         ids = p.get("members") or [pid]
         p["archived"] = all(i in gone for i in ids)
         p["importance"] = next((marked[i] for i in [pid] + ids if i in marked), "")
@@ -898,28 +898,29 @@ def takeaways(ix, texts=None, readouts=None):
     return out
 
 
-# Figures drawn inside the enclave stay where the readback files them, out/<NN_function_vK>/RELEASE/ (10-20): one
+# Results figures stay where the readback files them, out/<NN_function_vK>/RELEASE/ (10-20): one
 # plot per function and file name, its versions on a version axis as in index(); no caption file, so the title is the
 # page's own. Only RELEASE/ (the checked set); on the hosted copy too, every version since the floor (10-20).
 RUN = re.compile(r"^(?P<nn>\d{2,3})_(?P<fn>.+)_v(?P<k>\d+)$")
-ENCLAVE_FIG = re.compile(r"^out/\d{2,3}_[\w-]+_v\d+/RELEASE/[^/]+\.(pdf|png)$")
+RESULTS_CODE = str(CFG.get("results_code", "code/results")).rstrip("/") + "/"  # the scripts behind them (11-27)
+RESULTS_FIG = re.compile(r"^out/\d{2,3}_[\w-]+_v\d+/RELEASE/[^/]+\.(pdf|png)$")
 
 
-def enclave(read_of=lambda path, mtime: "", names={}):
+def results(read_of=lambda path, mtime: "", names={}):
     by = defaultdict(list)
     for stem in sorted(ls("out")):
         rel = os.path.join(ROOT, "out", stem, "RELEASE")
         if not (m := RUN.match(stem)) or not os.path.isdir(rel):
             continue
         for n in os.listdir(rel):
-            if ENCLAVE_FIG.match(p := f"out/{stem}/RELEASE/{n}"):
+            if RESULTS_FIG.match(p := f"out/{stem}/RELEASE/{n}"):
                 by[(m["nn"], m["fn"], n)].append(dict(k=int(m["k"]), path=p, mtime=os.path.getmtime(os.path.join(ROOT, p))))
     plots, scripts = {}, defaultdict(list)
     for (nn, fn, n), fs in sorted(by.items()):
         fs.sort(key=lambda f: -f["k"])
         top, pid, many = fs[0], f"out/{nn}_{fn}/{n}", len(fs) > 1
         name = pretty(f"{nn}_{n.rsplit('.', 1)[0]}")
-        plots[pid] = dict(id=pid, kind="figure", script=f"code/enclave/{nn}_{fn}_v{top['k']}.py", nn=nn, name=name,
+        plots[pid] = dict(id=pid, kind="figure", script=f"{RESULTS_CODE}{nn}_{fn}_v{top['k']}.py", nn=nn, name=name,
                           title=names.get(pid) or out_title(top["path"]) or name, dup=False, flags=[],
                           axes=[["version", [f"v{f['k']}" for f in fs]]] if many else [],
                           files={(f"v{f['k']}" if many else ""): dict(path=f["path"], img=img_url(f["path"]), k=f["k"],
@@ -931,18 +932,18 @@ def enclave(read_of=lambda path, mtime: "", names={}):
     n = Counter(p["title"] for p in plots.values())
     for p in plots.values():  # a page's title is often an axis label, shared by its siblings: show the file name too
         p["dup"] = n[p["title"]] > 1
-    return plots, [dict(id=f"enclave:{s}", title=s.replace("_", " ", 1) + " (enclave)", plots=ps) for s, ps in scripts.items()]
+    return plots, [dict(id=f"results:{s}", title=s.replace("_", " ", 1) + " (results)", plots=ps) for s, ps in scripts.items()]
 
 
 # A figure drawn under several choices that no sidecar names is one plot too (10-20: "automatically, without me
 # asking each time"): figure files of one script and folder whose names differ by one token (a word, or a window:
 # 2012_2019) and that show the same figure; the tokens that differ are its option axes. The same figure: the same
-# title head (up to the first , ; : or (), or, when neither title is a chosen name or a caption (an enclave page
+# title head (up to the first , ; : or (), or, when neither title is a chosen name or a caption (a results page
 # without a suptitle yields a panel label), page-1 words at least 70% the same; or, whatever the titles, the two tokens
 # they differ by sit on one axis in this script's rows of .room/options.tsv (10-20: imputed and measured labor
 # cost are one plot), and tokens declared on different axes never share one. A loose page one token from a file of
 # a sidecar family joins that family with that file's choices. .room/options.tsv names the chips; a sidecar wins over
-# all of this, so one also undoes a wrong merge (figures/ only: enclave pages carry none).
+# all of this, so one also undoes a wrong merge (figures/ only: results pages carry none).
 YEAR = re.compile(r"(?:19|20)\d\d")
 WORD = re.compile(r"[a-z][a-z'-]{2,}")
 OPTIONS = os.path.join(DATA, "options.tsv")
@@ -1520,7 +1521,7 @@ PNG_DIR = os.path.expanduser(f"~/.cache/{re.sub(r'[^a-z0-9]+', '-', NAME.lower()
 
 def eq_of(path):
     """The page the dashboard and the room show for a figure: its copy with the equation, <stem>.eq.pdf beside it, or
-    for a page drawn inside the enclave figures/eq/<run>/<stem>.eq.pdf (out/<run>/RELEASE/ holds only what left the enclave;
+    for a results page figures/eq/<run>/<stem>.eq.pdf (out/<run>/RELEASE/ holds only the results;
     each run folder its own, so a new version never inherits the old one's equation); else the figure itself."""
     m = re.match(r"out/([^/]+)/RELEASE/(.+)\.pdf$", path)
     for eq in ([path[:-4] + EQ_EXT] if path.endswith(".pdf") else []) + ([f"figures/eq/{m[1]}/{m[2]}{EQ_EXT}"] if m else []):
@@ -1835,7 +1836,7 @@ def export(out):
     last = max((p["read"] for p in full["plots"].values()), default="")
     noeq = sorted(f["path"] for p in full["plots"].values() if p["read"] == last and p.get("ptype") in ("forest", "event study")
                   for f in p["files"].values() if f["path"].endswith(".pdf") and "superseded" not in f["flags"] and eq_of(f["path"]) == f["path"])
-    if noeq:  # figure_rules.save(equation=), or for a page drawn in the enclave the project's own script
+    if noeq:  # figure_rules.save(equation=), or for a results page the project's own script
         print(f"{len(noeq)} regression figures read {last} show no equation:\n  " + "\n  ".join(noeq), file=sys.stderr)
     if lost := scan()[1]:  # never silent: these are listed at /all only (review 11-13, F8)
         names_ = ", ".join(sorted(f"{f['dir']}/{f['name']}" for f in lost)[:8]) + (", …" if len(lost) > 8 else "")
@@ -2214,9 +2215,9 @@ class Handler(BaseHTTPRequestHandler):  # GET, plus POST for the Claude panel un
         plain = path.startswith("/png/") and path.endswith(".pdf.plain.png")  # img_url(plain=True): no equation
         png = (".plain.png" if plain else ".png") if path.startswith("/png/") else ""
         rest = unquote(path.split("/", 2)[2]) if path.startswith(("/f/out/", "/png/out/")) else ""
-        if rest and ENCLAVE_FIG.match(rest.removesuffix(png)):
+        if rest and RESULTS_FIG.match(rest.removesuffix(png)):
             p = os.path.join(ROOT, rest.removesuffix(png))
-            if os.path.isfile(p):  # an enclave page (enclave()): the pattern allows one run folder and one file name
+            if os.path.isfile(p):  # a results page (results()): the pattern allows one run folder and one file name
                 return self.send(200, pdf_png(p, plain), "image/png") if png and p.endswith(".pdf") else \
                     self.send(200, open(p, "rb").read(), mimetypes.guess_type(p)[0] or "application/octet-stream")
         parts = path.split("/")  # /f|png/<dir>/<name>: dir must be one of DIRS, name a listed file in it
@@ -2617,13 +2618,13 @@ def selftest():
     assert still_open({"2026-10-20": bt}) == {"2026-10-20": [{"t": "Funding rounds: shipped, not run", "link": "https://example.org/r2"},
                                                              {"t": "Book the seminar", "link": ""}]}
     assert hosted(dict(I, takeaways={"d": bk}, still_open={"d": []}), since=0)["still_open"] == {"d": []}
-    # the page shown: the equation copy beside a figure, or under figures/eq/<run>/ for an enclave page of that run only
+    # the page shown: the equation copy beside a figure, or under figures/eq/<run>/ for a results page of that run only
     root, g = ROOT, globals()  # selftest reads ROOT above, so it is swapped through globals()
     with tempfile.TemporaryDirectory() as d:
         for q in ("figures/a_v1.eq.pdf", "figures/eq/70_x_v5/p.eq.pdf"):
             os.makedirs(os.path.dirname(os.path.join(d, q)), exist_ok=True)
             open(os.path.join(d, q), "w").close()
-        with open(os.path.join(d, "figures/eq/70_x_v5/p.eq.json"), "w") as fh:  # the equation as text: enclave page only
+        with open(os.path.join(d, "figures/eq/70_x_v5/p.eq.json"), "w") as fh:  # the equation as text: results page only
             json.dump({"eq": "$y$", "notes": []}, fh)
         with open(sw := os.path.join(d, "switches.tsv"), "w") as fh:  # the ⓘ help: a literal \n is a new line
             fh.write("# comment\n*\tversion\tWhich drawing.\n88\tTrim\tFirms only.\\nNo trim: sectors.\nbad row\n")

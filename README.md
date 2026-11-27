@@ -32,8 +32,8 @@ python3 ../ResearchRoom/room/dashboard.py --project .
   `superseded` at `/all`.
 - **Optional, and switched on by being there:** `code/local/N_name_vK.py` (the script that writes the outputs
   numbered `N`: its link, and a flag when an output needs a rerun, see below); `docs/findings.md` (the overview at `/`;
-  format in `example/docs/findings.md`); `docs/runs/readout_<date>_<label>.md` and `out/N_name_vK/RELEASE/` (results
-  that come back from a restricted-data site, dated by the commit that added the read-out); `docs/log/`.
+  format in `example/docs/findings.md`); `docs/runs/readout_<date>_<label>.md` and `out/N_name_vK/RELEASE/` (results,
+  dated by the commit that added the read-out); `docs/log/`.
   An output whose number no script carries is a plot of its own. We note one limit: a file not named `N_name_vK.ext`,
   or one whose number several scripts carry while none matches its first word, is listed at `/all` only; the export
   names each such file.

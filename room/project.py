@@ -18,7 +18,7 @@ if not os.path.isdir(ROOT):
 DATA = os.path.join(ROOT, ".room")
 # Every key the config may hold; a table's value is its own keys. A key is added here only with a reason, written in
 # the commit: the file must not grow into a second program (design, anti-goals).
-ALLOWED = {"name": None, "title": None, "floor": None, "marks_from": None, "people": None,
+ALLOWED = {"name": None, "title": None, "floor": None, "marks_from": None, "people": None, "results_code": None,
            "hosted": {"project", "hosts", "access_team", "emails", "env_file", "names", "qa"}, "claude": {"prompt_file"}, "siblings": {"codebooks"}}
 DATES, LISTS = {"floor", "marks_from"}, {"people", "hosted.hosts", "hosted.emails"}  # the values with a type to check
 

@@ -2,8 +2,8 @@
 
     uv run --with matplotlib python example/make.py     (or any Python with matplotlib)
 
-Every number is invented. The outputs are committed, so the example opens without running this. It draws what three
-imaginary sittings at a restricted-data site brought back (docs/runs/readout_*.md), and beside the figures it writes
+Every number is invented. The outputs are committed, so the example opens without running this. It draws the results of three
+imaginary sittings (docs/runs/readout_*.md), and beside the figures it writes
 what a project's own figure scripts would: each caption (<stem>.txt), the plot type (<stem>.ptype), the equation of each
 regression figure (<stem>.eq.json, beside <stem>.eq.pdf, the page the equation belongs to), and the option sidecars of
 two families (<stem>.variant.json). It writes .room/about.tsv too, since each row carries a fingerprint of the files it

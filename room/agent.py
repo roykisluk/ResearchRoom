@@ -378,7 +378,7 @@ class Hub:
         if resume:
             prompt_text = f"{asker}'s follow-up (now showing: {ctx.get('variant', '')}): {run['text']}"
         elif is_chat(pid):  # the Brief's chat column: a running conversation about one sitting, not a Q&A card
-            prompt_text = (f"A chat with {asker} about the takeaways of one enclave sitting, beside the control room's Brief.\n"
+            prompt_text = (f"A chat with {asker} about the takeaways of one sitting, beside the control room's Brief.\n"
                            f"{ctx.get('title', pid)}\nTakeaways: {ctx.get('path', '')}; the full readout: {ctx.get('script', '')} "
                            "(Read them when the question needs them). The Q&A threads are in docs/qa/.\n"
                            f"On screen: {ctx.get('variant', '')}\n"
@@ -386,7 +386,7 @@ class Hub:
                            "in plain words, as in a terminal chat.\n"
                            f"\n{asker}: {run['text']}")
         elif pid.startswith("sit:"):  # the room's sitting box: a question about one takeaway, or about all of them
-            prompt_text = (f"Question about the takeaways of one enclave sitting, in the control room.\n{ctx.get('title', pid)}\n"
+            prompt_text = (f"Question about the takeaways of one sitting, in the control room.\n{ctx.get('title', pid)}\n"
                            f"Takeaways: {ctx.get('path', '')}; the full readout: {ctx.get('script', '')} (Read both).\n"
                            f"About: {ctx.get('variant', 'all the points')}\n"
                            "Answer in plain words, few numbers; expand on the point and say what supports it.\n"
@@ -553,7 +553,7 @@ class Hub:
                 "Label: safest bins\nTitle: (fake) 20 equal-count bins keep every bin well filled\n"
                 "(fake answer) Every scheme keeps enough points in each bin; 33 bins is the tightest.\n\n"
                 "### Pitfall: (fake) the equal-width schemes drop bins\nA bin with too few points is not drawn, so the narrow scheme shows few points.\n"
-                "### Issue: (fake) Count the points per bin in the enclave\nThe counts are not in the release; the enclave run would add them.")
+                "### Issue: (fake) Count the points per bin\nThe counts are not in the results; the next run would add them.")
         for w in text.split(" "):
             a["b"] += w + " "
             self.card(pid, a)
@@ -587,8 +587,8 @@ def selftest():
     assert extra == [("pit", "Nine sectors off panel", "They are in the fit."), ("alt", "Read the slope", "Same slope.")], extra
     assert split_answer("Just an answer.") == ("", "", "", "Just an answer.", [])
     got = split_answer("Question: Why is the fit flat?\nLabel: flat fit\nTitle: It is one slope\nBody.\n\n"
-                       "### Issue: Run the fit by sector\nNeeds the enclave.")
-    assert got == ("flat fit", "It is one slope", "Why is the fit flat?", "Body.", [("iss", "Run the fit by sector", "Needs the enclave.")]), got
+                       "### Issue: Run the fit by sector\nNeeds the next run.")
+    assert got == ("flat fit", "It is one slope", "Why is the fit flat?", "Body.", [("iss", "Run the fit by sector", "Needs the next run.")]), got
     assert split_answer("Title: T\nQuestion: Q?\nB")[1:4] == ("T", "Q?", "B")  # the header lines in any order
     cards = [dict(id="q1", par="plot", k="q", h="Why?", edge="why"), dict(id="a1", par="q1", k="a", h="Because", b="x"),
              dict(id="p1", par="a1", k="pit", h="Careful", b="y", edge="watch out")]
@@ -602,7 +602,7 @@ def selftest():
     assert (hub.last["model"], hub.last["effort"]) == ("opus", "medium"), hub.last
     hub.ask("p", "plot", "why?", False, {}, model="sonnet", effort="low")
     assert (hub.last["model"], hub.last["effort"]) == ("sonnet", "low"), hub.last
-    hub.cards["p"].append(dict(id="iss1", par="a1", k="iss", h="Run the fit by sector", b="Needs the enclave."))
+    hub.cards["p"].append(dict(id="iss1", par="a1", k="iss", h="Run the fit by sector", b="Needs the next run."))
     r1, r2 = hub.issue("p", "iss1"), hub.issue("p", "iss1")
     assert r1["ok"] and r1["res"].startswith("(fake) would open") and not r2["ok"], (r1, r2)  # one issue per card
     assert not hub.issue("p", "nope")["ok"]

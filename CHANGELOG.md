@@ -2,6 +2,11 @@
 
 One line for each change that asks a project to do something. Fetch updates with `git pull`.
 
+## 2026-11-27
+- The scripts behind `out/<run>/RELEASE/` figures are looked for in `code/results/` unless `.room/config.toml` sets
+  `results_code` to another folder; their script ids are now `results:<script>`. To do: a project keeping those
+  scripts elsewhere sets `results_code`; links to the old script ids change.
+
 ## 2026-11-21
 - The hosted copy asks its room for the owner's archive and importance marks (`GET /api/marks`) and shows those over
   its `index.json`, which is only as new as the last publish: an item archived on the shared site no longer comes back
