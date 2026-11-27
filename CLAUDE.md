@@ -18,3 +18,9 @@ the example room at `/demo/`.
   deployments hold the old wording. Public example: the site's `/demo/`.
 - **2026-11-27 — the clean check also reads unpushed commits.** A lesson entry naming the owner and the project was
   refused at push (`history:` hits). Fix: amend the unpushed commit; keep names out of this repository.
+- **2026-11-27 — blurry plots in the demo.** Symptom: plot text looked soft on a 2x screen, and stayed soft after a
+  fix. Root causes: PDFs were drawn at 150 dpi (960 px wide), the example's one PNG was saved at 150 dpi by `make.py`,
+  and image URLs carried only the file's time, which `make.py` pins, so the browser kept the old image. Fix: `DPI = 400`
+  in `pdf_png`, PNGs saved at 400 dpi in `make.py`, and image URLs now carry time, size and (for PDFs) the dpi. To check,
+  screenshot with a fresh headless Chrome at `--force-device-scale-factor=2`: your own browser may show a cached copy.
+  Rerunning `make.py` with a newer matplotlib also rewrites untouched figures; restore those with `git checkout`.
