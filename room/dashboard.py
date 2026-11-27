@@ -1540,11 +1540,14 @@ def spec_of(path):
         return json.load(fh)
 
 
+DPI = 400  # a ~1200 px wide card on a 2x screen needs ~2400 px; also in img_url, so a new dpi is a new URL
+
+
 def pdf_png(p, plain=False):
     """Page 1 of a PDF as PNG bytes, the equation page unless `plain`; rendered in a temporary folder, so nothing is
     written to the repo."""
     p = os.path.join(ROOT, os.path.relpath(p, ROOT) if plain else eq_of(os.path.relpath(p, ROOT)))
-    key = (p, os.path.getmtime(p), 300)  # 300 dpi: sharp text on a 2x screen; the dpi in the key drops older caches
+    key = (p, os.path.getmtime(p), DPI)  # the dpi in the key drops images cached at an older one
     if key not in PNG:
         disk = os.path.join(PNG_DIR, hashlib.md5(repr(key).encode()).hexdigest() + ".png")
         if not os.path.isfile(disk):
@@ -1570,7 +1573,7 @@ def img_url(path, plain=False):
     src = os.path.join(ROOT, path if plain else eq_of(path))
     v = f"?v={int(os.path.getmtime(src))}" if os.path.isfile(src) else ""
     png = ".plain.png" if plain else ".png"
-    return f"png/{d}/{quote(name)}{png}{v}" if ext == "pdf" else f"f/{d}/{quote(name)}{v}" if ext in ("png", "svg", "jpg") else ""
+    return f"png/{d}/{quote(name)}{png}{v}{'-' + str(DPI) if v else ''}" if ext == "pdf" else f"f/{d}/{quote(name)}{v}" if ext in ("png", "svg", "jpg") else ""
 
 
 def exhibit(path, ix, main=False):
